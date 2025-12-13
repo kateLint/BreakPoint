@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <meta name="theme-color" content="#f8fafc">
+    <meta name="description" content="Make office decisions fun, fast, and social">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>BreakPoint</title>
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/svg+xml"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☕</text></svg>">
+
+    <!-- Dependencies -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Fonts -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap"
+        rel="stylesheet">
+
+    <!-- Styles -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4 {
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* Custom Animations */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        .animate-fade-in {
+            animation: fadeIn 0.3s ease-out forwards;
+        }
+
+        .food-card-enter {
+            animation: glideUp 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+        }
+
+        @keyframes glideUp {
+            from {
+                transform: translateY(20px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+
+<body class="bg-slate-200 min-h-screen flex items-center justify-center font-sans antialiased text-slate-900">
+
+    <!-- App Shell (Mobile-First) -->
+    <div id="app"
+        class="w-full max-w-md min-h-screen bg-white shadow-xl overflow-hidden relative">
+
+        <!-- Screen Content -->
+        <div class="h-full pt-6 relative overflow-y-auto overflow-x-hidden bg-slate-50" id="mainContent">
+
+            <!-- VIEW: HOME -->
+            <div id="homeView" class="view h-full flex flex-col">
+                <header class="p-6 bg-white shadow-sm flex justify-between items-center z-10 sticky top-0">
+                    <div class="flex items-center gap-2">
+                        <div
+                            class="w-8 h-8 bg-gradient-to-tr from-orange-400 to-pink-500 rounded-full flex items-center justify-center text-white font-bold">
+                            B</div>
+                        <h1 class="text-xl font-extrabold text-slate-800 tracking-tight">BreakPoint</h1>
+                    </div>
+                    <div class="relative">
+                        <i data-lucide="bell" class="w-6 h-6 text-slate-400"></i>
+                        <span
+                            class="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
+                    </div>
+                </header>
+
+                <main class="flex-1 p-6 flex flex-col justify-center gap-6">
+                    <div class="text-center mb-4">
+                        <h2 class="text-2xl font-bold text-slate-800">What's the plan?</h2>
+                        <p class="text-slate-500">Pick a vibe for the team.</p>
+                    </div>
+
+                    <button id="navToDrink"
+                        class="group relative overflow-hidden bg-white p-6 rounded-3xl shadow-lg border-2 border-transparent hover:border-orange-200 transition-all active:scale-95 text-left w-full"
+                        style="cursor: pointer;">
+                        <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
+                            <i data-lucide="coffee" class="w-20 h-20 text-orange-500" stroke-width="1.5"></i>
+                        </div>
+                        <div
+                            class="bg-orange-100 w-12 h-12 rounded-2xl flex items-center justify-center mb-4 text-orange-600 group-hover:rotate-12 transition-transform pointer-events-none">
+                            <i data-lucide="coffee" class="w-6 h-6"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-slate-800 pointer-events-none">Quick Coffee</h3>
+                        <p class="text-slate-500 text-sm mt-1 pointer-events-none">Spin the wheel, grab a drink in 5 min.</p>
+                    </button>
+
+                    <button id="navToLunch"
+                        class="group relative overflow-hidden bg-white p-6 rounded-3xl shadow-lg border-2 border-transparent hover:border-blue-200 transition-all active:scale-95 text-left w-full"
+                        style="cursor: pointer;">
+                        <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
+                            <i data-lucide="utensils" class="w-20 h-20 text-blue-500" stroke-width="1.5"></i>
+                        </div>
+                        <div
+                            class="bg-blue-100 w-12 h-12 rounded-2xl flex items-center justify-center mb-4 text-blue-600 group-hover:-rotate-12 transition-transform pointer-events-none">
+                            <i data-lucide="utensils" class="w-6 h-6"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-slate-800 pointer-events-none">Team Lunch</h3>
+                        <p class="text-slate-500 text-sm mt-1 pointer-events-none">Resolve the "Where do we eat?" debate.</p>
+                    </button>
+                </main>
+
+                <div class="p-6 text-center text-xs text-slate-400">
+                    <p>Sarah, Mike, and 3 others are online.</p>
+                </div>
+            </div>
+
+            <!-- VIEW: DRINK WHEEL -->
+            <div id="drinkWheelView"
+                class="view hidden h-full flex flex-col bg-slate-900 text-white overflow-hidden relative">
+                <div
+                    class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 pointer-events-none">
+                </div>
+
+                <div class="p-4 z-10 flex items-center">
+                    <button id="backFromDrink"
+                        class="p-2 bg-white/10 rounded-full hover:bg-white/20 backdrop-blur-md transition-colors">
+                        <i data-lucide="chevron-left" class="w-6 h-6"></i>
+                    </button>
+                    <span class="ml-4 font-bold text-lg">Daily Spin</span>
+                </div>
+
+                <div class="flex-1 flex flex-col items-center justify-center relative z-0">
+                    <!-- Pointer -->
+                    <div class="absolute top-[15%] z-20 text-white drop-shadow-lg">
+                        <div
+                            class="w-0 h-0 border-l-[15px] border-l-transparent border-t-[30px] border-t-white border-r-[15px] border-r-transparent">
+                        </div>
+                    </div>
+
+                    <!-- Wheel -->
+                    <div id="wheelWrapper"
+                        class="relative w-80 h-80 rounded-full border-8 border-white shadow-2xl overflow-hidden transition-transform duration-[4000ms] cubic-bezier(0.2, 0.8, 0.2, 1)">
+                        <canvas id="wheelCanvas" width="400" height="400" class="w-full h-full object-cover"></canvas>
+                    </div>
+
+                    <!-- Result Overlay -->
+                    <div id="wheelResult"
+                        class="hidden absolute inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in p-6">
+                        <div class="bg-white text-slate-900 p-6 rounded-3xl text-center shadow-2xl w-full max-w-sm">
+                            <h3 class="text-slate-500 uppercase text-xs font-bold tracking-widest mb-2">The Oracle Says
+                            </h3>
+                            <div class="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-pink-500 mb-6"
+                                id="resultText">
+                                <!-- Result Text -->
+                            </div>
+
+                            <div class="mb-6">
+                                <button id="generateHypeButton"
+                                    class="w-full bg-indigo-50 text-indigo-600 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:bg-indigo-100 transition-colors">
+                                    <i data-lucide="sparkles" class="w-4 h-4"></i>
+                                    <span>Generate Hype Message</span>
+                                </button>
+                                <div id="aiMessageResult"
+                                    class="hidden bg-indigo-50 p-3 rounded-xl border border-indigo-100 relative group text-left mt-2">
+                                    <p class="text-sm font-medium text-indigo-900 pr-6 italic" id="aiMessageText"></p>
+                                    <button class="absolute top-2 right-2 text-indigo-400 hover:text-indigo-600"
+                                        id="copyAiMessage">
+                                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <button id="inviteTeamButton"
+                                class="w-full bg-slate-900 text-white py-4 rounded-xl font-bold shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2">
+                                Invite Team <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                            </button>
+                            <button id="spinAgainButton"
+                                class="mt-4 text-slate-400 text-sm font-medium hover:text-slate-600">
+                                Spin Again
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-8 z-10" id="spinControls">
+                    <button id="spinButton"
+                        class="w-full bg-gradient-to-r from-orange-500 to-pink-500 text-white text-xl font-bold py-5 rounded-2xl shadow-lg shadow-orange-500/30 active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed">
+                        SPIN IT!
+                    </button>
+                </div>
+            </div>
+
+            <!-- VIEW: LUNCH SELECTION -->
+            <div id="lunchView" class="view hidden h-full flex flex-col">
+                <header class="p-6 bg-white shadow-sm flex justify-between items-center z-10 sticky top-0">
+                    <button id="backFromLunch"
+                        class="p-2 -ml-2 hover:bg-slate-100 rounded-full transition-colors">
+                        <i data-lucide="chevron-left" class="w-6 h-6"></i>
+                    </button>
+                    <h1 class="text-xl font-extrabold text-slate-800 tracking-tight">Team Lunch</h1>
+                    <div class="w-10"></div>
+                </header>
+
+                <main class="flex-1 p-6 flex flex-col justify-center gap-6">
+                    <div class="text-center mb-4">
+                        <h2 class="text-2xl font-bold text-slate-800">How should we decide?</h2>
+                        <p class="text-slate-500">Pick your voting method.</p>
+                    </div>
+
+                    <button id="navToSwipe"
+                        class="group relative overflow-hidden bg-white p-6 rounded-3xl shadow-lg border-2 border-transparent hover:border-pink-200 transition-all active:scale-95 text-left w-full">
+                        <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                            <i data-lucide="credit-card" class="w-20 h-20 text-pink-500" stroke-width="1.5"></i>
+                        </div>
+                        <div
+                            class="bg-pink-100 w-12 h-12 rounded-2xl flex items-center justify-center mb-4 text-pink-600 group-hover:rotate-12 transition-transform">
+                            <i data-lucide="credit-card" class="w-6 h-6"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-slate-800">Swipe to Vote</h3>
+                        <p class="text-slate-500 text-sm mt-1">Tinder-style card voting for restaurants.</p>
+                    </button>
+
+                    <button id="navToFoodWheel"
+                        class="group relative overflow-hidden bg-white p-6 rounded-3xl shadow-lg border-2 border-transparent hover:border-green-200 transition-all active:scale-95 text-left w-full">
+                        <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                            <i data-lucide="disc-3" class="w-20 h-20 text-green-500" stroke-width="1.5"></i>
+                        </div>
+                        <div
+                            class="bg-green-100 w-12 h-12 rounded-2xl flex items-center justify-center mb-4 text-green-600 group-hover:-rotate-12 transition-transform">
+                            <i data-lucide="disc-3" class="w-6 h-6"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-slate-800">Spin the Wheel</h3>
+                        <p class="text-slate-500 text-sm mt-1">Let fate decide your lunch spot.</p>
+                    </button>
+
+                    <button id="navToPoll"
+                        class="group relative overflow-hidden bg-white p-6 rounded-3xl shadow-lg border-2 border-transparent hover:border-purple-200 transition-all active:scale-95 text-left w-full">
+                        <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                            <i data-lucide="bar-chart-3" class="w-20 h-20 text-purple-500" stroke-width="1.5"></i>
+                        </div>
+                        <div
+                            class="bg-purple-100 w-12 h-12 rounded-2xl flex items-center justify-center mb-4 text-purple-600 group-hover:scale-110 transition-transform">
+                            <i data-lucide="bar-chart-3" class="w-6 h-6"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-slate-800">Team Poll</h3>
+                        <p class="text-slate-500 text-sm mt-1">Vote together on lunch options.</p>
+                    </button>
+                </main>
+
+                <div class="p-6 text-center text-xs text-slate-400">
+                    <p>Everyone's invited to vote!</p>
+                </div>
+            </div>
+
+            <!-- VIEW: LUNCH SWIPE -->
+            <div id="swipeView" class="view hidden h-full flex flex-col bg-slate-50 relative">
+                <div class="p-4 flex items-center justify-between z-10">
+                    <button id="backFromSwipe"
+                        class="p-2 bg-white rounded-full text-slate-600 shadow-sm transition-colors">
+                        <i data-lucide="chevron-left" class="w-6 h-6"></i>
+                    </button>
+                    <span class="font-bold text-slate-700">Lunch Swipe</span>
+                    <div class="relative">
+                        <button id="toggleAiInput"
+                            class="p-2 rounded-full bg-white text-indigo-600 shadow-sm transition-colors hover:bg-indigo-50">
+                            <i data-lucide="sparkles" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- AI Input Panel -->
+                <div id="aiInputPanel" class="hidden px-6 pb-2">
+                    <div class="bg-white p-4 rounded-2xl shadow-lg border border-indigo-100">
+                        <label class="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-2 block">
+                            ✨ AI Lunch Curator
+                        </label>
+                        <div class="flex gap-2">
+                            <input type="text" id="aiVibeInput" placeholder="e.g. 'Spicy & Cheap' or 'Healthy'"
+                                class="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            <button id="generateCardsButton"
+                                class="bg-indigo-600 text-white p-2 rounded-lg disabled:opacity-50">
+                                <i data-lucide="arrow-right" class="w-5 h-5"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex-1 flex flex-col items-center justify-center p-6 relative overflow-visible" id="swipeStack" style="min-height: 500px;">
+                    <!-- Cards will be injected here via JS -->
+                </div>
+
+                <div class="p-8 pt-0 flex justify-center gap-6 z-10">
+                    <button id="swipeLeft"
+                        class="w-16 h-16 bg-white rounded-full text-red-500 shadow-xl flex items-center justify-center hover:bg-red-50 transition-colors active:scale-95">
+                        <i data-lucide="x" class="w-8 h-8"></i>
+                    </button>
+                    <button id="swipeRight"
+                        class="w-16 h-16 bg-gradient-to-tr from-green-400 to-green-600 rounded-full text-white shadow-xl shadow-green-500/30 flex items-center justify-center hover:opacity-90 transition-opacity active:scale-95">
+                        <i data-lucide="sparkles" class="w-8 h-8"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- VIEW: FOOD WHEEL -->
+            <div id="foodWheelView" class="view hidden h-full flex flex-col bg-gradient-to-br from-green-900 to-emerald-800 text-white overflow-hidden relative">
+                <div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 pointer-events-none"></div>
+
+                <div class="p-4 z-10 flex items-center">
+                    <button id="backFromFoodWheel"
+                        class="p-2 bg-white/10 rounded-full hover:bg-white/20 backdrop-blur-md transition-colors">
+                        <i data-lucide="chevron-left" class="w-6 h-6"></i>
+                    </button>
+                    <span class="ml-4 font-bold text-lg">Lunch Spinner</span>
+                </div>
+
+                <div class="flex-1 flex flex-col items-center justify-center relative z-0">
+                    <!-- Pointer -->
+                    <div class="absolute top-[15%] z-20 text-white drop-shadow-lg">
+                        <div class="w-0 h-0 border-l-[15px] border-l-transparent border-t-[30px] border-t-white border-r-[15px] border-r-transparent"></div>
+                    </div>
+
+                    <!-- Food Wheel -->
+                    <div id="foodWheelWrapper" class="relative w-80 h-80 rounded-full border-8 border-white shadow-2xl overflow-hidden transition-transform duration-[4000ms] cubic-bezier(0.2, 0.8, 0.2, 1)">
+                        <canvas id="foodWheelCanvas" width="400" height="400" class="w-full h-full object-cover"></canvas>
+                    </div>
+
+                    <!-- Result Overlay -->
+                    <div id="foodWheelResult" class="hidden absolute inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in p-6">
+                        <div class="bg-white text-slate-900 p-6 rounded-3xl text-center shadow-2xl w-full max-w-sm">
+                            <h3 class="text-slate-500 uppercase text-xs font-bold tracking-widest mb-2">Let's Go To</h3>
+                            <div class="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-green-500 to-emerald-500 mb-6" id="foodResultText">
+                                <!-- Result Text -->
+                            </div>
+
+                            <button id="inviteFoodTeamButton"
+                                class="w-full bg-slate-900 text-white py-4 rounded-xl font-bold shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2">
+                                Invite Team <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                            </button>
+                            <button id="spinFoodAgainButton"
+                                class="mt-4 text-slate-400 text-sm font-medium hover:text-slate-600">
+                                Spin Again
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-8 z-10" id="foodSpinControls">
+                    <button id="foodSpinButton"
+                        class="w-full bg-gradient-to-r from-green-500 to-emerald-500 text-white text-xl font-bold py-5 rounded-2xl shadow-lg shadow-green-500/30 active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed">
+                        SPIN IT!
+                    </button>
+                </div>
+            </div>
+
+            <!-- VIEW: POLL -->
+            <div id="pollView" class="view hidden h-full flex flex-col bg-slate-50">
+                <div class="p-4 flex items-center justify-between z-10 bg-white shadow-sm">
+                    <button id="backFromPoll"
+                        class="p-2 bg-slate-100 rounded-full text-slate-600 hover:bg-slate-200 transition-colors">
+                        <i data-lucide="chevron-left" class="w-6 h-6"></i>
+                    </button>
+                    <span class="font-bold text-slate-700">Team Poll</span>
+                    <div class="w-10"></div>
+                </div>
+
+                <div class="flex-1 p-6 overflow-y-auto">
+                    <div class="text-center mb-8">
+                        <h2 class="text-2xl font-bold text-slate-800 mb-2">Vote for Lunch!</h2>
+                        <p class="text-slate-500">Tap your favorite or add your own</p>
+                    </div>
+
+                    <!-- Add Custom Option -->
+                    <div class="mb-6 bg-indigo-50 p-4 rounded-2xl border-2 border-dashed border-indigo-200">
+                        <div class="flex items-center gap-2 mb-2">
+                            <i data-lucide="plus-circle" class="w-5 h-5 text-indigo-600"></i>
+                            <span class="font-bold text-indigo-900 text-sm">Add Your Own Option</span>
+                        </div>
+                        <div class="flex gap-2">
+                            <input type="text" id="customOptionInput" placeholder="e.g., Falafel House, Ramen Bar..."
+                                class="flex-1 bg-white border-2 border-indigo-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                maxlength="30">
+                            <button id="addCustomOptionButton"
+                                class="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                Add
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="pollOptions" class="space-y-4">
+                        <!-- Poll options will be injected here -->
+                    </div>
+
+                    <div class="mt-8 text-center text-sm text-slate-400">
+                        <p>Results update in real-time</p>
+                    </div>
+                </div>
+
+                <div class="p-6 bg-white border-t border-slate-200">
+                    <button id="finishPollButton"
+                        class="w-full bg-gradient-to-r from-purple-500 to-purple-600 text-white py-4 rounded-xl font-bold shadow-lg active:scale-95 transition-transform">
+                        See Winner
+                    </button>
+                </div>
+            </div>
+
+            <!-- VIEW: LOBBY -->
+            <div id="lobbyView" class="view hidden h-full flex flex-col bg-white">
+                <div class="p-6 pt-12">
+                    <h1 class="text-3xl font-extrabold text-slate-800 mb-2" id="lobbyActivity">Getting Coffee</h1>
+                    <div class="flex items-center gap-2 text-slate-500">
+                        <i data-lucide="clock" class="w-4 h-4"></i>
+                        <span>Leaving in <span class="text-red-500 font-bold">04:30</span></span>
+                    </div>
+                </div>
+
+                <div class="flex-1 p-6">
+                    <div class="grid grid-cols-3 gap-6" id="lobbyAvatars">
+                        <!-- Default User -->
+                        <div class="flex flex-col items-center gap-2">
+                            <div class="relative">
+                                <div
+                                    class="w-20 h-20 rounded-full bg-slate-300 border-4 border-green-500 overflow-hidden">
+                                    <img src="https://i.pravatar.cc/150?u=1" class="w-full h-full object-cover">
+                                </div>
+                                <div
+                                    class="absolute bottom-0 right-0 bg-green-500 text-white rounded-full p-1 border-2 border-white">
+                                    <i data-lucide="check" class="w-3 h-3"></i>
+                                </div>
+                            </div>
+                            <span class="text-sm font-medium text-slate-700">You</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-6 border-t border-slate-100">
+                    <button id="backFromLobby" class="w-full mt-2 text-slate-400 py-3 text-sm font-medium">
+                        Cancel Event
+                    </button>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Home Indicator -->
+        <div class="absolute bottom-2 left-1/2 transform -translate-x-1/2 w-32 h-1.5 bg-slate-900/20 rounded-full">
+        </div>
+    </div>
+
+    <!-- Backend Configuration -->
+    <script>
+        // Dev mode: local Worker
+        window.BREAKPOINT_API_BASE_URL = "http://localhost:8787";
+
+        // Production mode (after deploying):
+        // window.BREAKPOINT_API_BASE_URL = "https://breakpoint-realtime.YOUR-SUBDOMAIN.workers.dev";
+    </script>
+
+    <!-- Init Icons -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+        });
+    </script>
+
+    <!-- App Logic -->
+    <script type="module" src="js/app.js"></script>
+
+    <!-- Service Worker -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/service-worker.js')
+                    .then(reg => console.log('Service Worker registered'))
+                    .catch(err => console.log('Service Worker registration failed'));
+            });
+        }
+    </script>
+</body>
+
+</html>
