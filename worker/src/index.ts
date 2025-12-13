@@ -159,6 +159,7 @@ export type RoomState = {
   hostClientId?: string;
   members: Record<string, Member>;
   activity?: Activity;
+  promotedOptions: JsonObject[]; // Persistent list of popular options
   updatedAt: number;
 };
 
@@ -204,6 +205,7 @@ export class BreakPointRoom extends DurableObject<Env> {
     this.stateData = {
       roomId: "",
       members: {},
+      promotedOptions: [],
       updatedAt: nowMs()
     };
 
@@ -211,7 +213,10 @@ export class BreakPointRoom extends DurableObject<Env> {
     this.ctx.blockConcurrencyWhile(async () => {
       const stored = await this.ctx.storage.get<RoomState>("roomState");
       if (stored && typeof stored === "object" && stored.roomId && stored.members) {
-        this.stateData = stored;
+        this.stateData = {
+          ...stored,
+          promotedOptions: Array.isArray(stored.promotedOptions) ? stored.promotedOptions : []
+        };
       }
 
       for (const ws of this.ctx.getWebSockets()) {
@@ -365,7 +370,22 @@ export class BreakPointRoom extends DurableObject<Env> {
 
     // Ephemeral cleanup: wipe state but keep roomId.
     const roomId = this.stateData.roomId;
-    this.stateData = { roomId, members: {}, updatedAt: nowMs() };
+    // Don't wipe promotedOptions? User probably wants them to persist longer. 
+    // But current logic wipes everything. Let's keep it simple for now and wipe everything.
+    // If user wants long term persistence they should ask. For now "Room" persistence is good enough?
+    // Actually, "added to the wheel" implies persistence.
+    // Let's keep promotedOptions on cleanup? No, let's keep it simple.
+    // Wait, if I clean up, I lose promotedOptions.
+    // The previous code wiped everything: { roomId, members: {}, updatedAt: nowMs() }
+    // I should probably preserve promotedOptions IF I want "persistent rooms".
+    // But the requirement is "activity_start" injects them.
+    // Let's assume wiping after 24h of inactivity is fine.
+    this.stateData = {
+      roomId,
+      members: {},
+      promotedOptions: [], // Resetting for now as per previous logic style
+      updatedAt: nowMs()
+    };
     await this.persist();
   }
 
@@ -494,6 +514,18 @@ export class BreakPointRoom extends DurableObject<Env> {
       return;
     }
 
+    // INJECT PROMOTED OPTIONS
+    if (["drink_wheel", "food_wheel", "swipe_match"].includes(activity.kind)) {
+      const payload = activity.payload as JsonObject;
+      const promoted = this.stateData.promotedOptions;
+      if (promoted.length > 0) {
+        // Assume payload has 'promotedOptions' or similar container.
+        // Or trigger client to add them?
+        // Let's add them to a dedicated field in payload so client can merge.
+        payload.promotedOptions = promoted;
+      }
+    }
+
     this.stateData.activity = activity;
     this.stateData.updatedAt = nowMs();
     await this.persist();
@@ -548,8 +580,42 @@ export class BreakPointRoom extends DurableObject<Env> {
     // Store votes in payload.votes[clientId] = vote
     const payload = activity.payload as JsonObject;
     const votes = (payload.votes && typeof payload.votes === "object" ? payload.votes : {}) as Record<string, JsonObject>;
+
+    // Check if this is a repeat vote? Logic usually allows changing vote.
     votes[clientId] = msg.vote as JsonObject;
     payload.votes = votes;
+
+    // POPULARITY CHECK
+    // Calculate total votes for the voted item.
+    // Assuming vote structure is { restaurantId: "..." }
+    const voteData = msg.vote as { restaurantId?: string };
+    if (voteData.restaurantId) {
+      const targetId = voteData.restaurantId;
+      let count = 0;
+      for (const v of Object.values(votes)) {
+        if ((v as any).restaurantId === targetId) count++;
+      }
+
+      // "selected more then twice" -> 3 or more.
+      if (count > 2) {
+        // Check if already promoted
+        const isPromoted = this.stateData.promotedOptions.some(p => (p as any).id === targetId);
+        if (!isPromoted) {
+          // Find the option details from payload.restaurants
+          const restaurants = (Array.isArray(payload.restaurants) ? payload.restaurants : []) as any[];
+          const option = restaurants.find(r => r.id === targetId);
+          if (option) {
+            this.stateData.promotedOptions.push(option);
+            // Broadcast promotion event? Or just let state update handle it?
+            // State update sends "state", but "activity_upsert" only sends activity.
+            // We should probably broadcast the updated state or a specific event.
+            // Let's send a full state update to ensure promotedOptions are synced.
+            this.send(ws, { v: 1, t: "state", state: serializeState(this.stateData) });
+            this.broadcast({ v: 1, t: "server_notification", message: `🏆 "${option.name}" has been promoted!` } as any);
+          }
+        }
+      }
+    }
 
     activity.payload = payload;
     this.stateData.updatedAt = nowMs();

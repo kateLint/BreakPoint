@@ -12,9 +12,29 @@ export const AppState = {
     currentView: 'homeView',
     currentUser: { id: getOrCreateClientId(), name: 'You', avatar: '😊' },
     realtimeClient: null,
-    currentRoomId: 'DEFAULTROOM', // Start with a default room for easy testing
+    currentRoomId: 'DEFAULTROOM',
+    savedRooms: ['DEFAULTROOM', 'Floor3', 'Floor10'], // Defaults
     isHost: false
 };
+
+// Load saved rooms
+const saved = localStorage.getItem('bp_saved_rooms');
+if (saved) {
+    try {
+        AppState.savedRooms = JSON.parse(saved);
+        if (!Array.isArray(AppState.savedRooms) || AppState.savedRooms.length === 0) {
+            AppState.savedRooms = ['DEFAULTROOM'];
+        }
+    } catch {
+        AppState.savedRooms = ['DEFAULTROOM'];
+    }
+}
+
+// Load last room
+const lastRoom = localStorage.getItem('bp_last_room');
+if (lastRoom && AppState.savedRooms.includes(lastRoom)) {
+    AppState.currentRoomId = lastRoom;
+}
 
 export const ViewManager = {
     show(viewId, options = {}) {
@@ -32,7 +52,6 @@ export const ViewManager = {
             // View specific init
             if (viewId === 'drinkWheelView') {
                 resetWheel();
-                // Auto-spin if requested
                 if (options.autoSpin) {
                     requestAnimationFrame(() => {
                         requestAnimationFrame(() => {
@@ -48,12 +67,11 @@ export const ViewManager = {
                 // Food wheel will initialize on its own
             } else if (viewId === 'pollView') {
                 if (AppState.isHost) {
-                    // Check if poll already running? 
-                    // For simplicity, just try to start it. Worker will reject if active exists?
-                    // No, implementation overwrite. Ideally checks.
                     startPollActivity();
                 }
                 initializePoll();
+            } else if (viewId === 'lobbyView') {
+                renderRoomList();
             }
         }
     },
@@ -83,9 +101,19 @@ function initializeApp() {
 // ============================================
 
 async function connectToBackend() {
-    const apiBaseUrl = window.BREAKPOINT_API_BASE_URL || "http://localhost:8787";
+    if (AppState.realtimeClient) {
+        AppState.realtimeClient.disconnect(); // Disconnect existing
+    }
 
-    console.log('🔌 Connecting to real-time backend:', apiBaseUrl);
+    // Dynamic backend URL based on current hostname
+    const protocol = window.location.protocol;
+    const hostname = window.location.hostname;
+    // Assume backend is always on 8787 for now, or use window var override
+    const defaultApiUrl = `${protocol}//${hostname}:8787`;
+
+    const apiBaseUrl = window.BREAKPOINT_API_BASE_URL || defaultApiUrl;
+
+    console.log(`🔌 Connecting to room: ${AppState.currentRoomId} at ${apiBaseUrl}`);
 
     AppState.realtimeClient = new BreakPointRealtime({
         apiBaseUrl,
@@ -102,21 +130,26 @@ async function connectToBackend() {
     AppState.realtimeClient.addEventListener('welcome', (e) => {
         console.log('✅ Connected to room:', e.detail);
         AppState.isHost = e.detail.isHost;
-
-        // Initialize poll activity on server after connecting
+        document.getElementById('currentRoomDisplay').innerText = `Room: ${AppState.currentRoomId}`;
         syncPollToServer();
     });
 
     // Listen for state updates
     AppState.realtimeClient.addEventListener('state', (e) => {
-        console.log('📊 Room state updated:', e.detail.state);
+        // console.log('📊 Room state updated:', e.detail.state);
         handleServerStateUpdate(e.detail.state);
     });
 
     // Listen for activity updates
     AppState.realtimeClient.addEventListener('activity_upsert', (e) => {
-        console.log('🎯 Activity updated:', e.detail.activity);
+        // console.log('🎯 Activity updated:', e.detail.activity);
         handleActivityUpdate(e.detail.activity);
+    });
+
+    // Listen for server notifications (Promotions!)
+    AppState.realtimeClient.addEventListener('server_notification', (e) => {
+        const msg = e.detail.message || "Notification";
+        alert(msg); // TODO: Replace with nice toast
     });
 
     // Listen for errors
@@ -130,19 +163,27 @@ async function connectToBackend() {
         console.log('🎉 Real-time connection established!');
     } catch (err) {
         console.error('⚠️ Failed to connect to backend (running offline):', err);
-        console.log('💡 To enable real-time sync:');
-        console.log('   1. cd worker');
-        console.log('   2. npm install');
-        console.log('   3. npm run dev');
     }
 }
 
 function handleServerStateUpdate(state) {
+    if (state.promotedOptions && state.promotedOptions.length > 0) {
+        // console.log('🏆 Updating promoted options:', state.promotedOptions);
+        // Inject into FoodWheel?
+        state.promotedOptions.forEach(opt => {
+            addCategoryToFoodWheel({
+                id: opt.id,
+                name: opt.name,
+                icon: opt.emoji || '🏆',
+                color: '#F59E0B' // Gold
+            });
+        });
+    }
+
     // Sync poll restaurants from server activity
     if (state.activity && state.activity.kind === 'quick_poll') {
         const payload = state.activity.payload || {};
         if (payload.restaurants) {
-            console.log('🔄 Syncing poll options from server state...');
             POLL_RESTAURANTS = payload.restaurants;
             initializePoll();
         }
@@ -368,6 +409,86 @@ function finishPoll() {
 }
 
 // ============================================
+// ROOM MANAGEMENT
+// ============================================
+
+function renderRoomList() {
+    const list = document.getElementById('roomList');
+    if (!list) return;
+
+    list.innerHTML = AppState.savedRooms.map(roomId => {
+        const isActive = roomId === AppState.currentRoomId;
+        return `
+            <div class="flex items-center justify-between bg-white/10 backdrop-blur-md rounded-xl p-4 border ${isActive ? 'border-purple-400 bg-white/20' : 'border-white/10'} hover:bg-white/20 transition-all cursor-pointer group"
+                 onclick="switchRoom('${roomId}')">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-lg">
+                        ${roomId.substring(0, 2).toUpperCase()}
+                    </div>
+                    <div class="flex flex-col">
+                        <span class="text-white font-bold">${roomId}</span>
+                        <span class="text-white/60 text-xs">${isActive ? 'Active Now' : 'Click to Join'}</span>
+                    </div>
+                </div>
+                ${!isActive && roomId !== 'DEFAULTROOM' ? `
+                <button onclick="event.stopPropagation(); removeRoom('${roomId}')" class="text-white/40 hover:text-red-400 p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                </button>
+                ` : ''}
+                ${isActive ? '<i data-lucide="check-circle" class="text-green-400 w-5 h-5"></i>' : ''}
+            </div>
+        `;
+    }).join('');
+
+    if (window.lucide) lucide.createIcons();
+}
+
+// Make globally available for onclick
+window.switchRoom = function (roomId) {
+    if (roomId === AppState.currentRoomId) return;
+
+    // Save previous room?
+    AppState.currentRoomId = roomId;
+    localStorage.setItem('bp_last_room', roomId);
+
+    // Reconnect
+    connectToBackend();
+
+    // Refresh UI
+    renderRoomList();
+
+    // Show toast or something?
+    // alert(`Joined Room: ${roomId}`);
+    ViewManager.show('homeView');
+}
+
+window.removeRoom = function (roomId) {
+    if (confirm(`Remove "${roomId}" from saved rooms?`)) {
+        AppState.savedRooms = AppState.savedRooms.filter(r => r !== roomId);
+        localStorage.setItem('bp_saved_rooms', JSON.stringify(AppState.savedRooms));
+        renderRoomList();
+    }
+}
+
+function addRoom(roomId) {
+    roomId = roomId.trim();
+    if (!roomId) return;
+
+    // Allow alphanumeric
+    if (!/^[a-zA-Z0-9_-]+$/.test(roomId)) {
+        alert("Room ID can only contain letters, numbers, hyphens, and underscores.");
+        return;
+    }
+
+    if (!AppState.savedRooms.includes(roomId)) {
+        AppState.savedRooms.push(roomId);
+        localStorage.setItem('bp_saved_rooms', JSON.stringify(AppState.savedRooms));
+    }
+
+    switchRoom(roomId);
+}
+
+// ============================================
 // EVENT LISTENERS
 // ============================================
 
@@ -382,6 +503,10 @@ function setupEventListeners() {
     document.getElementById('navToSwipe')?.addEventListener('click', () => ViewManager.show('swipeView'));
     document.getElementById('navToFoodWheel')?.addEventListener('click', () => ViewManager.show('foodWheelView'));
     document.getElementById('navToPoll')?.addEventListener('click', () => ViewManager.show('pollView'));
+
+    // === Lobby (Rooms) ===
+    document.getElementById('roomButton')?.addEventListener('click', () => ViewManager.show('lobbyView'));
+    document.getElementById('burgerMenuButton')?.addEventListener('click', () => ViewManager.show('lobbyView')); // Assuming burger menu goes to settings/rooms
 
     // === Back Buttons ===
     document.getElementById('backFromDrink')?.addEventListener('click', () => ViewManager.goBack());
@@ -400,7 +525,13 @@ function setupEventListeners() {
     });
 
     document.getElementById('inviteTeamButton')?.addEventListener('click', () => {
-        ViewManager.show('lobbyView');
+        // Copy Room ID
+        navigator.clipboard.writeText(AppState.currentRoomId).then(() => {
+            const btn = document.getElementById('inviteTeamButton');
+            const original = btn.innerHTML;
+            btn.innerHTML = '<i data-lucide="check" class="w-5 h-5"></i> <span>Copied ID!</span>';
+            setTimeout(() => btn.innerHTML = original, 2000);
+        });
     });
 
     // === Food Wheel Actions ===
@@ -436,9 +567,14 @@ function setupEventListeners() {
     document.getElementById('swipeLeft')?.addEventListener('click', () => swipeCard('left'));
     document.getElementById('swipeRight')?.addEventListener('click', () => swipeCard('right'));
 
-    // === AI Toggles (Mock) ===
-    document.getElementById('toggleAiInput')?.addEventListener('click', () => {
-        document.getElementById('aiInputPanel').classList.toggle('hidden');
+    // === Room Actions ===
+    document.getElementById('addRoomButton')?.addEventListener('click', () => {
+        const val = document.getElementById('newRoomInput')?.value;
+        if (val) addRoom(val);
+    });
+
+    document.getElementById('newRoomInput')?.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') addRoom(e.target.value);
     });
 }
 

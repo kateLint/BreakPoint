@@ -4,21 +4,26 @@
   "main": "src/index.ts",
   "compatibility_date": "2025-12-12",
   "workers_dev": true,
-
   "durable_objects": {
     "bindings": [
-      { "name": "BREAKPOINT_ROOMS", "class_name": "BreakPointRoom" }
+      {
+        "name": "BREAKPOINT_ROOMS",
+        "class_name": "BreakPointRoom"
+      }
     ]
   },
-
   // SQLite-backed DO namespace (recommended for new projects)
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["BreakPointRoom"] }
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "BreakPointRoom"
+      ]
+    }
   ],
-
   "vars": {
     // Comma-separated list of allowed Origins (exact match).
     // For production set this to your Pages origin, e.g. "https://breakpoint.example.com"
-    "ALLOWED_ORIGINS": "http://localhost:8000"
+    "ALLOWED_ORIGINS": "http://localhost:8000,http://10.0.0.1:8000"
   }
 }

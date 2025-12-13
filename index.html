@@ -77,8 +77,7 @@
 <body class="bg-slate-200 min-h-screen flex items-center justify-center font-sans antialiased text-slate-900">
 
     <!-- App Shell (Mobile-First) -->
-    <div id="app"
-        class="w-full max-w-md min-h-screen bg-white shadow-xl overflow-hidden relative">
+    <div id="app" class="w-full max-w-md min-h-screen bg-white shadow-xl overflow-hidden relative">
 
         <!-- Screen Content -->
         <div class="h-full pt-6 relative overflow-y-auto overflow-x-hidden bg-slate-50" id="mainContent">
@@ -108,7 +107,8 @@
                     <button id="navToDrink"
                         class="group relative overflow-hidden bg-white p-6 rounded-3xl shadow-lg border-2 border-transparent hover:border-orange-200 transition-all active:scale-95 text-left w-full"
                         style="cursor: pointer;">
-                        <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
+                        <div
+                            class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
                             <i data-lucide="coffee" class="w-20 h-20 text-orange-500" stroke-width="1.5"></i>
                         </div>
                         <div
@@ -116,13 +116,15 @@
                             <i data-lucide="coffee" class="w-6 h-6"></i>
                         </div>
                         <h3 class="text-xl font-bold text-slate-800 pointer-events-none">Quick Coffee</h3>
-                        <p class="text-slate-500 text-sm mt-1 pointer-events-none">Spin the wheel, grab a drink in 5 min.</p>
+                        <p class="text-slate-500 text-sm mt-1 pointer-events-none">Spin the wheel, grab a drink in 5
+                            min.</p>
                     </button>
 
                     <button id="navToLunch"
                         class="group relative overflow-hidden bg-white p-6 rounded-3xl shadow-lg border-2 border-transparent hover:border-blue-200 transition-all active:scale-95 text-left w-full"
                         style="cursor: pointer;">
-                        <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
+                        <div
+                            class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
                             <i data-lucide="utensils" class="w-20 h-20 text-blue-500" stroke-width="1.5"></i>
                         </div>
                         <div
@@ -130,7 +132,8 @@
                             <i data-lucide="utensils" class="w-6 h-6"></i>
                         </div>
                         <h3 class="text-xl font-bold text-slate-800 pointer-events-none">Team Lunch</h3>
-                        <p class="text-slate-500 text-sm mt-1 pointer-events-none">Resolve the "Where do we eat?" debate.</p>
+                        <p class="text-slate-500 text-sm mt-1 pointer-events-none">Resolve the "Where do we eat?"
+                            debate.</p>
                     </button>
                 </main>
 
@@ -218,8 +221,7 @@
             <!-- VIEW: LUNCH SELECTION -->
             <div id="lunchView" class="view hidden h-full flex flex-col">
                 <header class="p-6 bg-white shadow-sm flex justify-between items-center z-10 sticky top-0">
-                    <button id="backFromLunch"
-                        class="p-2 -ml-2 hover:bg-slate-100 rounded-full transition-colors">
+                    <button id="backFromLunch" class="p-2 -ml-2 hover:bg-slate-100 rounded-full transition-colors">
                         <i data-lucide="chevron-left" class="w-6 h-6"></i>
                     </button>
                     <h1 class="text-xl font-extrabold text-slate-800 tracking-tight">Team Lunch</h1>
@@ -310,7 +312,8 @@
                     </div>
                 </div>
 
-                <div class="flex-1 flex flex-col items-center justify-center p-6 relative overflow-visible" id="swipeStack" style="min-height: 500px;">
+                <div class="flex-1 flex flex-col items-center justify-center p-6 relative overflow-visible"
+                    id="swipeStack" style="min-height: 500px;">
                     <!-- Cards will be injected here via JS -->
                 </div>
 
@@ -327,8 +330,11 @@
             </div>
 
             <!-- VIEW: FOOD WHEEL -->
-            <div id="foodWheelView" class="view hidden h-full flex flex-col bg-gradient-to-br from-green-900 to-emerald-800 text-white overflow-hidden relative">
-                <div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 pointer-events-none"></div>
+            <div id="foodWheelView"
+                class="view hidden h-full flex flex-col bg-gradient-to-br from-green-900 to-emerald-800 text-white overflow-hidden relative">
+                <div
+                    class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 pointer-events-none">
+                </div>
 
                 <div class="p-4 z-10 flex items-center">
                     <button id="backFromFoodWheel"
@@ -341,19 +347,25 @@
                 <div class="flex-1 flex flex-col items-center justify-center relative z-0">
                     <!-- Pointer -->
                     <div class="absolute top-[15%] z-20 text-white drop-shadow-lg">
-                        <div class="w-0 h-0 border-l-[15px] border-l-transparent border-t-[30px] border-t-white border-r-[15px] border-r-transparent"></div>
+                        <div
+                            class="w-0 h-0 border-l-[15px] border-l-transparent border-t-[30px] border-t-white border-r-[15px] border-r-transparent">
+                        </div>
                     </div>
 
                     <!-- Food Wheel -->
-                    <div id="foodWheelWrapper" class="relative w-80 h-80 rounded-full border-8 border-white shadow-2xl overflow-hidden transition-transform duration-[4000ms] cubic-bezier(0.2, 0.8, 0.2, 1)">
-                        <canvas id="foodWheelCanvas" width="400" height="400" class="w-full h-full object-cover"></canvas>
+                    <div id="foodWheelWrapper"
+                        class="relative w-80 h-80 rounded-full border-8 border-white shadow-2xl overflow-hidden transition-transform duration-[4000ms] cubic-bezier(0.2, 0.8, 0.2, 1)">
+                        <canvas id="foodWheelCanvas" width="400" height="400"
+                            class="w-full h-full object-cover"></canvas>
                     </div>
 
                     <!-- Result Overlay -->
-                    <div id="foodWheelResult" class="hidden absolute inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in p-6">
+                    <div id="foodWheelResult"
+                        class="hidden absolute inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in p-6">
                         <div class="bg-white text-slate-900 p-6 rounded-3xl text-center shadow-2xl w-full max-w-sm">
                             <h3 class="text-slate-500 uppercase text-xs font-bold tracking-widest mb-2">Let's Go To</h3>
-                            <div class="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-green-500 to-emerald-500 mb-6" id="foodResultText">
+                            <div class="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-green-500 to-emerald-500 mb-6"
+                                id="foodResultText">
                                 <!-- Result Text -->
                             </div>
 
@@ -438,7 +450,25 @@
                     </div>
                 </div>
 
-                <div class="flex-1 p-6">
+                <div class="flex-1 p-6 overflow-y-auto">
+                    <!-- Room List Section -->
+                    <div class="mb-8">
+                        <h3 class="text-slate-500 font-bold mb-4 uppercase text-xs tracking-wider">Your Rooms</h3>
+                        <div id="roomList" class="space-y-3">
+                            <!-- Room Items will be injected here -->
+                        </div>
+
+                        <div class="flex gap-2 mt-4">
+                            <input type="text" id="newRoomInput" placeholder="Enter Room ID..."
+                                class="flex-1 bg-slate-100 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-400">
+                            <button id="addRoomButton"
+                                class="bg-purple-500 hover:bg-purple-600 text-white rounded-xl px-4 transition-all">
+                                <i data-lucide="plus" class="w-6 h-6"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <h3 class="text-slate-500 font-bold mb-4 uppercase text-xs tracking-wider">Team Members</h3>
                     <div class="grid grid-cols-3 gap-6" id="lobbyAvatars">
                         <!-- Default User -->
                         <div class="flex flex-col items-center gap-2">
@@ -454,6 +484,14 @@
                             </div>
                             <span class="text-sm font-medium text-slate-700">You</span>
                         </div>
+                    </div>
+
+                    <div class="mt-8">
+                        <button id="inviteTeamButton"
+                            class="w-full bg-indigo-50 text-indigo-600 py-3 rounded-xl font-bold border border-indigo-100 shadow-sm hover:bg-indigo-100 transition-all flex items-center justify-center gap-2">
+                            <i data-lucide="share-2" class="w-4 h-4"></i>
+                            <span>Copy Invite Link</span>
+                        </button>
                     </div>
                 </div>
 
@@ -473,8 +511,11 @@
 
     <!-- Backend Configuration -->
     <script>
-        // Dev mode: local Worker
-        window.BREAKPOINT_API_BASE_URL = "http://localhost:8787";
+        // Dev mode: Use same hostname as frontend to avoid CORS issues
+        // This allows accessing from localhost:8000 or 10.0.0.1:8000
+        const currentHost = window.location.hostname;
+        const protocol = window.location.protocol;
+        window.BREAKPOINT_API_BASE_URL = `${protocol}//${currentHost}:8787`;
 
         // Production mode (after deploying):
         // window.BREAKPOINT_API_BASE_URL = "https://breakpoint-realtime.YOUR-SUBDOMAIN.workers.dev";
