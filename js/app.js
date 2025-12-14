@@ -62,7 +62,15 @@ export const ViewManager = {
             } else if (viewId === 'foodWheelView') {
                 // Food wheel will initialize on its own
             } else if (viewId === 'pollView') {
-                if (AppState.isHost) {
+                // Check if there's already an active poll from the server
+                if (AppState.realtimeClient?.state?.activity?.kind === 'quick_poll') {
+                    console.log('📥 Loading existing poll from server');
+                    const payload = AppState.realtimeClient.state.activity.payload || {};
+                    if (payload.restaurants) {
+                        POLL_RESTAURANTS = payload.restaurants;
+                    }
+                } else if (AppState.isHost) {
+                    console.log('🎬 Host starting new poll activity');
                     startPollActivity();
                 }
                 initializePoll();
@@ -138,8 +146,11 @@ async function connectToBackend() {
     AppState.realtimeClient.addEventListener('welcome', (e) => {
         console.log('✅ Connected to room:', e.detail);
         AppState.isHost = e.detail.isHost;
-        document.getElementById('currentRoomDisplay').innerText = `Room: ${AppState.currentRoomId}`;
-        syncPollToServer();
+        const roomDisplay = document.getElementById('currentRoomDisplay');
+        if (roomDisplay) {
+            roomDisplay.innerText = `Room: ${AppState.currentRoomId}`;
+        }
+        updateOnlineUsersDisplay();
     });
 
     // Listen for state updates
@@ -175,9 +186,10 @@ async function connectToBackend() {
 }
 
 function handleServerStateUpdate(state) {
+    console.log('📊 Received state update from server:', state);
+
     if (state.promotedOptions && state.promotedOptions.length > 0) {
-        // console.log('🏆 Updating promoted options:', state.promotedOptions);
-        // Inject into FoodWheel?
+        console.log('🏆 Updating promoted options:', state.promotedOptions);
         state.promotedOptions.forEach(opt => {
             addCategoryToFoodWheel({
                 id: opt.id,
@@ -190,24 +202,34 @@ function handleServerStateUpdate(state) {
 
     // Sync poll restaurants from server activity
     if (state.activity && state.activity.kind === 'quick_poll') {
+        console.log('🗳️ Syncing poll from server state');
         const payload = state.activity.payload || {};
         if (payload.restaurants) {
             POLL_RESTAURANTS = payload.restaurants;
-            initializePoll();
+            // Only re-render if we're on the poll view
+            if (AppState.currentView === 'pollView') {
+                initializePoll();
+            }
         }
     }
+
+    // Update online users display
+    updateOnlineUsersDisplay();
 }
 
 function handleActivityUpdate(activity) {
-    // Handle different activity types
-    // Note: Worker uses 'kind' and 'payload', app.js used 'type' and 'data'
+    console.log('🎯 Activity update received:', activity);
     const payload = activity.payload || {};
 
     if (activity.kind === 'quick_poll') {
-        console.log('🗳️ Poll activity updated');
+        console.log('🗳️ Poll activity updated - restaurants:', payload.restaurants);
         if (payload.restaurants) {
             POLL_RESTAURANTS = payload.restaurants;
-            initializePoll();
+            // Re-render poll if we're currently viewing it
+            if (AppState.currentView === 'pollView') {
+                console.log('✨ Re-rendering poll with updated data');
+                initializePoll();
+            }
         }
     } else if (activity.kind === 'drink_wheel') {
         console.log('☕ Drink wheel spun:', payload.result);
@@ -425,19 +447,22 @@ function renderRoomSelectionList() {
 
     list.innerHTML = AppState.savedRooms.map(roomId => {
         return `
-            <button class="flex items-center justify-between bg-white/10 backdrop-blur-md rounded-2xl p-5 border-2 border-white/20 hover:bg-white/20 hover:border-white/40 transition-all cursor-pointer group w-full text-left"
+            <button class="group relative overflow-hidden bg-white p-6 rounded-3xl shadow-lg border-2 border-transparent hover:border-purple-200 transition-all active:scale-95 text-left w-full"
                  onclick="joinRoom('${roomId}')">
-                <div class="flex items-center gap-4">
-                    <div class="w-14 h-14 rounded-full bg-gradient-to-br from-white/20 to-white/10 flex items-center justify-center text-white font-bold text-xl shadow-lg">
-                        ${roomId.substring(0, 2).toUpperCase()}
-                    </div>
-                    <div class="flex flex-col">
-                        <span class="text-white font-bold text-lg">${roomId}</span>
-                        <span class="text-white/60 text-sm">Tap to join</span>
-                    </div>
+                <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                    <i data-lucide="users" class="w-20 h-20 text-purple-500" stroke-width="1.5"></i>
                 </div>
-                <div class="text-white/40 group-hover:text-white/80 transition-colors">
-                    <i data-lucide="arrow-right" class="w-6 h-6"></i>
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-4">
+                        <div class="bg-purple-100 w-12 h-12 rounded-2xl flex items-center justify-center text-purple-600 group-hover:scale-110 transition-transform">
+                            <i data-lucide="users" class="w-6 h-6"></i>
+                        </div>
+                        <div class="flex flex-col">
+                            <span class="text-xl font-bold text-slate-800">${roomId}</span>
+                            <span class="text-slate-500 text-sm">Tap to join room</span>
+                        </div>
+                    </div>
+                    <i data-lucide="arrow-right" class="w-5 h-5 text-slate-400 group-hover:text-purple-600 transition-colors"></i>
                 </div>
             </button>
         `;
