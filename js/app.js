@@ -9,11 +9,11 @@ import { initializeFoodWheel, spinFoodWheel, addCategoryToFoodWheel } from './co
 import { BreakPointRealtime, getOrCreateClientId } from './utils/BreakPointRealtime.js';
 
 export const AppState = {
-    currentView: 'homeView',
+    currentView: 'roomSelectionView',
     currentUser: { id: getOrCreateClientId(), name: 'You', avatar: '😊' },
     realtimeClient: null,
-    currentRoomId: 'DEFAULTROOM',
-    savedRooms: ['DEFAULTROOM', 'Floor3', 'Floor10'], // Defaults
+    currentRoomId: null,
+    savedRooms: ['ROOM1'], // Default room
     isHost: false
 };
 
@@ -23,18 +23,14 @@ if (saved) {
     try {
         AppState.savedRooms = JSON.parse(saved);
         if (!Array.isArray(AppState.savedRooms) || AppState.savedRooms.length === 0) {
-            AppState.savedRooms = ['DEFAULTROOM'];
+            AppState.savedRooms = ['ROOM1'];
         }
     } catch {
-        AppState.savedRooms = ['DEFAULTROOM'];
+        AppState.savedRooms = ['ROOM1'];
     }
 }
 
-// Load last room
-const lastRoom = localStorage.getItem('bp_last_room');
-if (lastRoom && AppState.savedRooms.includes(lastRoom)) {
-    AppState.currentRoomId = lastRoom;
-}
+// Note: We don't auto-connect to a room anymore, user must select one
 
 export const ViewManager = {
     show(viewId, options = {}) {
@@ -72,12 +68,19 @@ export const ViewManager = {
                 initializePoll();
             } else if (viewId === 'lobbyView') {
                 renderRoomList();
+            } else if (viewId === 'roomSelectionView') {
+                renderRoomSelectionList();
             }
         }
     },
 
     goBack() {
-        this.show('homeView');
+        // If in a room, go back to room selection
+        if (AppState.currentRoomId) {
+            this.show('roomSelectionView');
+        } else {
+            this.show('roomSelectionView');
+        }
     }
 };
 
@@ -87,8 +90,8 @@ function initializeApp() {
     initializeWheel();
     initializeFoodWheel();
 
-    // Connect to real-time backend
-    connectToBackend();
+    // Show room selection first (don't auto-connect)
+    renderRoomSelectionList();
 
     // Auto-create icons if loaded late
     if (window.lucide) {
@@ -101,6 +104,11 @@ function initializeApp() {
 // ============================================
 
 async function connectToBackend() {
+    if (!AppState.currentRoomId) {
+        console.warn('⚠️ No room selected, skipping connection');
+        return;
+    }
+
     if (AppState.realtimeClient) {
         AppState.realtimeClient.disconnect(); // Disconnect existing
     }
@@ -322,17 +330,16 @@ function addCustomOption(optionName) {
     const input = document.getElementById('customOptionInput');
     if (input) input.value = '';
 
-    // Sync to server
+    // Always add to local list immediately (optimistic UI update)
+    POLL_RESTAURANTS.push(customOption);
+    initializePoll();
+
+    // Also sync to server if connected
     if (AppState.realtimeClient && AppState.realtimeClient.isConnected) {
-        // Optimistic UI update or wait for server?
-        // Let's rely on server state update for adding to list to verify sync works.
-        // But clear input immediately.
+        console.log('📤 Syncing custom option to server:', customOption);
         AppState.realtimeClient.addPollOption('team-poll', customOption);
     } else {
-        // Fallback for offline mode or if connection failed
-        console.warn('⚠️ Offline: Adding option locally');
-        POLL_RESTAURANTS.push(customOption);
-        initializePoll();
+        console.warn('⚠️ Offline: Custom option added locally only');
     }
 }
 
@@ -412,6 +419,33 @@ function finishPoll() {
 // ROOM MANAGEMENT
 // ============================================
 
+function renderRoomSelectionList() {
+    const list = document.getElementById('roomSelectionList');
+    if (!list) return;
+
+    list.innerHTML = AppState.savedRooms.map(roomId => {
+        return `
+            <button class="flex items-center justify-between bg-white/10 backdrop-blur-md rounded-2xl p-5 border-2 border-white/20 hover:bg-white/20 hover:border-white/40 transition-all cursor-pointer group w-full text-left"
+                 onclick="joinRoom('${roomId}')">
+                <div class="flex items-center gap-4">
+                    <div class="w-14 h-14 rounded-full bg-gradient-to-br from-white/20 to-white/10 flex items-center justify-center text-white font-bold text-xl shadow-lg">
+                        ${roomId.substring(0, 2).toUpperCase()}
+                    </div>
+                    <div class="flex flex-col">
+                        <span class="text-white font-bold text-lg">${roomId}</span>
+                        <span class="text-white/60 text-sm">Tap to join</span>
+                    </div>
+                </div>
+                <div class="text-white/40 group-hover:text-white/80 transition-colors">
+                    <i data-lucide="arrow-right" class="w-6 h-6"></i>
+                </div>
+            </button>
+        `;
+    }).join('');
+
+    if (window.lucide) lucide.createIcons();
+}
+
 function renderRoomList() {
     const list = document.getElementById('roomList');
     if (!list) return;
@@ -430,7 +464,7 @@ function renderRoomList() {
                         <span class="text-white/60 text-xs">${isActive ? 'Active Now' : 'Click to Join'}</span>
                     </div>
                 </div>
-                ${!isActive && roomId !== 'DEFAULTROOM' ? `
+                ${!isActive && roomId !== 'ROOM1' ? `
                 <button onclick="event.stopPropagation(); removeRoom('${roomId}')" class="text-white/40 hover:text-red-400 p-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <i data-lucide="trash-2" class="w-4 h-4"></i>
                 </button>
@@ -444,6 +478,26 @@ function renderRoomList() {
 }
 
 // Make globally available for onclick
+window.joinRoom = async function (roomId) {
+    AppState.currentRoomId = roomId;
+    localStorage.setItem('bp_last_room', roomId);
+
+    // Show home view
+    ViewManager.show('homeView');
+
+    // Update room display
+    const roomDisplay = document.getElementById('currentRoomDisplay');
+    if (roomDisplay) {
+        roomDisplay.textContent = `Room: ${roomId}`;
+    }
+
+    // Connect to backend
+    await connectToBackend();
+
+    // Update online users display
+    updateOnlineUsersDisplay();
+}
+
 window.switchRoom = function (roomId) {
     if (roomId === AppState.currentRoomId) return;
 
@@ -471,12 +525,17 @@ window.removeRoom = function (roomId) {
 }
 
 function addRoom(roomId) {
-    roomId = roomId.trim();
+    roomId = roomId.trim().toUpperCase(); // Convert to uppercase for consistency
     if (!roomId) return;
 
     // Allow alphanumeric
-    if (!/^[a-zA-Z0-9_-]+$/.test(roomId)) {
+    if (!/^[A-Z0-9_-]+$/.test(roomId)) {
         alert("Room ID can only contain letters, numbers, hyphens, and underscores.");
+        return;
+    }
+
+    if (roomId.length < 3 || roomId.length > 16) {
+        alert("Room ID must be between 3 and 16 characters.");
         return;
     }
 
@@ -485,7 +544,21 @@ function addRoom(roomId) {
         localStorage.setItem('bp_saved_rooms', JSON.stringify(AppState.savedRooms));
     }
 
-    switchRoom(roomId);
+    // Refresh room list and join the new room
+    renderRoomSelectionList();
+    joinRoom(roomId);
+}
+
+function updateOnlineUsersDisplay() {
+    const onlineUsers = document.getElementById('onlineUsers');
+    if (!onlineUsers) return;
+
+    if (AppState.realtimeClient && AppState.realtimeClient.isConnected) {
+        const onlineCount = Object.values(AppState.realtimeClient.state?.members || {}).filter(m => m.online).length;
+        onlineUsers.innerHTML = `<p>${onlineCount} ${onlineCount === 1 ? 'person' : 'people'} online in this room</p>`;
+    } else {
+        onlineUsers.innerHTML = `<p>Connecting to room...</p>`;
+    }
 }
 
 // ============================================
@@ -493,6 +566,29 @@ function addRoom(roomId) {
 // ============================================
 
 function setupEventListeners() {
+    // === Room Selection ===
+    document.getElementById('createRoomButton')?.addEventListener('click', () => {
+        const input = document.getElementById('newRoomInputHome');
+        if (input && input.value) {
+            addRoom(input.value);
+            input.value = '';
+        }
+    });
+
+    document.getElementById('newRoomInputHome')?.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            const input = e.target;
+            if (input.value) {
+                addRoom(input.value);
+                input.value = '';
+            }
+        }
+    });
+
+    document.getElementById('backToRooms')?.addEventListener('click', () => {
+        ViewManager.show('roomSelectionView');
+    });
+
     // === Navigation ===
     document.getElementById('navToDrink')?.addEventListener('click', () => {
         ViewManager.show('drinkWheelView');
