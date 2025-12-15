@@ -358,8 +358,14 @@ function addCustomOption(optionName) {
 
     // Also sync to server if connected
     if (AppState.realtimeClient && AppState.realtimeClient.isConnected) {
-        console.log('📤 Syncing custom option to server:', customOption);
-        AppState.realtimeClient.addPollOption('team-poll', customOption);
+        const activity = AppState.realtimeClient.state?.activity;
+        if (activity && activity.kind === 'quick_poll') {
+            console.log('📤 Syncing custom option to server:', customOption);
+            console.log('📤 Activity ID:', activity.id);
+            AppState.realtimeClient.addPollOption(activity.id, customOption);
+        } else {
+            console.warn('⚠️ No active poll activity found');
+        }
     } else {
         console.warn('⚠️ Offline: Custom option added locally only');
     }
@@ -381,7 +387,11 @@ function handleVote(restaurantId) {
 
     // Sync vote to server
     if (AppState.realtimeClient && AppState.realtimeClient.isConnected) {
-        AppState.realtimeClient.vote('team-poll', { restaurantId });
+        const activity = AppState.realtimeClient.state?.activity;
+        if (activity && activity.kind === 'quick_poll') {
+            console.log('📤 Sending vote to server:', restaurantId);
+            AppState.realtimeClient.vote(activity.id, { restaurantId });
+        }
     }
 }
 

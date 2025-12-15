@@ -21,6 +21,7 @@ export class BreakPointRealtime extends EventTarget {
   #ws = null;
   #closedByUser = false;
   #retry = 0;
+  state = null; // Public state accessible from app
 
   constructor({ apiBaseUrl, roomId, profile }) {
     super();
@@ -48,6 +49,13 @@ export class BreakPointRealtime extends EventTarget {
     if (this.#ws) {
       try { this.#ws.close(1000, "client_close"); } catch { }
     }
+  }
+
+  /**
+   * Disconnect (alias for close)
+   */
+  disconnect() {
+    this.close();
   }
 
   /**
@@ -190,6 +198,11 @@ export class BreakPointRealtime extends EventTarget {
         let msg;
         try { msg = JSON.parse(ev.data); } catch { return; }
         if (!msg || msg.v !== 1 || !msg.t) return;
+
+        // Store state updates
+        if (msg.t === "state" && msg.state) {
+          this.state = msg.state;
+        }
 
         // Dispatch specific event type (e.g., "state", "member_upsert")
         this.dispatchEvent(new CustomEvent(msg.t, { detail: msg }));
