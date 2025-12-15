@@ -230,6 +230,14 @@ async function connectToBackend(inviteToken = null) {
         }
     });
 
+    // Listen for join request events
+    AppState.realtimeClient.addEventListener('join_request', (e) => {
+        console.log('🔔 Join request received:', e.detail);
+
+        const request = e.detail.request;
+        showJoinRequestNotification(request);
+    });
+
     // Connect
     try {
         await AppState.realtimeClient.connect();
@@ -798,6 +806,71 @@ function generateInviteLink() {
     AppState.realtimeClient.send({ v: 1, t: 'generate_invite' });
 
     console.log('📤 Requested invite token generation');
+}
+
+function showJoinRequestNotification(request) {
+    const container = document.getElementById('joinRequestNotifications');
+    if (!container) return;
+
+    // Check if host
+    if (!AppState.isHost) return;
+
+    // Clone template
+    const template = document.getElementById('joinRequestNotificationTemplate');
+    const notification = template.content.cloneNode(true);
+
+    // Fill in details
+    notification.querySelector('.join-request-avatar').textContent = request.avatar;
+    notification.querySelector('.join-request-name').textContent = request.displayName;
+
+    // Set up approve button
+    const approveBtn = notification.querySelector('.approve-join-btn');
+    approveBtn.addEventListener('click', () => {
+        approveJoinRequest(request.clientId);
+        // Remove notification
+        approveBtn.closest('.bg-purple-900').remove();
+    });
+
+    // Set up deny button
+    const denyBtn = notification.querySelector('.deny-join-btn');
+    denyBtn.addEventListener('click', () => {
+        denyJoinRequest(request.clientId);
+        // Remove notification
+        denyBtn.closest('.bg-purple-900').remove();
+    });
+
+    // Add to container
+    container.appendChild(notification);
+}
+
+function approveJoinRequest(requesterId) {
+    if (!AppState.realtimeClient || !AppState.realtimeClient.isConnected) {
+        console.error('Not connected to room');
+        return;
+    }
+
+    AppState.realtimeClient.send({
+        v: 1,
+        t: 'approve_join',
+        requesterId: requesterId
+    });
+
+    console.log('✅ Approved join request for', requesterId);
+}
+
+function denyJoinRequest(requesterId) {
+    if (!AppState.realtimeClient || !AppState.realtimeClient.isConnected) {
+        console.error('Not connected to room');
+        return;
+    }
+
+    AppState.realtimeClient.send({
+        v: 1,
+        t: 'deny_join',
+        requesterId: requesterId
+    });
+
+    console.log('❌ Denied join request for', requesterId);
 }
 
 function updateOnlineUsersDisplay() {

@@ -152,6 +152,11 @@
                 </header>
 
                 <main class="flex-1 p-6 flex flex-col justify-center gap-6">
+                    <!-- Join Request Notifications -->
+                    <div id="joinRequestNotifications" class="space-y-2">
+                        <!-- Notifications will be inserted here -->
+                    </div>
+
                     <div class="text-center mb-4">
                         <h2 class="text-2xl font-bold text-slate-800">What's the plan?</h2>
                         <p class="text-slate-500">Pick a vibe for the team.</p>
@@ -635,6 +640,27 @@
             </div>
         </div>
     </div>
+
+    <!-- Join Request Notification Template -->
+    <template id="joinRequestNotificationTemplate">
+        <div class="bg-purple-900 bg-opacity-50 rounded-lg p-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <span class="text-3xl join-request-avatar"></span>
+                <div>
+                    <p class="font-bold join-request-name text-white"></p>
+                    <p class="text-sm text-gray-400">wants to join</p>
+                </div>
+            </div>
+            <div class="flex gap-2">
+                <button class="approve-join-btn px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors">
+                    ✓ Approve
+                </button>
+                <button class="deny-join-btn px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors">
+                    ✗ Deny
+                </button>
+            </div>
+        </div>
+    </template>
 
     <!-- Backend Configuration -->
     <script>
