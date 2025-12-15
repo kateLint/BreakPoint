@@ -209,6 +209,14 @@ async function connectToBackend(inviteToken = null) {
     // Listen for errors
     AppState.realtimeClient.addEventListener('error', (e) => {
         console.error('❌ Real-time error:', e.detail);
+
+        if (e.detail.code === 'needs_invite') {
+            alert('This room requires an invite to join. Please request access or get an invite link.');
+            ViewManager.show('roomSelectionView');
+        } else if (e.detail.code === 'invalid_invite') {
+            alert('Invalid or expired invite link.');
+            ViewManager.show('roomSelectionView');
+        }
     });
 
     // Listen for invite_generated event
@@ -236,6 +244,44 @@ async function connectToBackend(inviteToken = null) {
 
         const request = e.detail.request;
         showJoinRequestNotification(request);
+    });
+
+    // Listen for join approved event
+    AppState.realtimeClient.addEventListener('join_approved', (e) => {
+        console.log('✅ Join request approved:', e.detail);
+
+        const { roomId, inviteToken } = e.detail;
+
+        // Close waiting modal if open
+        document.getElementById('joinRequestWaitingModal').classList.add('hidden');
+
+        // Close temp WebSocket
+        if (window._tempJoinRequestWs) {
+            window._tempJoinRequestWs.close();
+            window._tempJoinRequestWs = null;
+        }
+
+        // Auto-join with the invite token
+        setTimeout(() => {
+            joinRoom(roomId, inviteToken);
+        }, 500);
+    });
+
+    // Listen for join denied event
+    AppState.realtimeClient.addEventListener('join_denied', (e) => {
+        console.log('❌ Join request denied:', e.detail);
+
+        // Close waiting modal
+        document.getElementById('joinRequestWaitingModal').classList.add('hidden');
+
+        // Close temp WebSocket
+        if (window._tempJoinRequestWs) {
+            window._tempJoinRequestWs.close();
+            window._tempJoinRequestWs = null;
+        }
+
+        // Show error message
+        alert('Your request to join was denied by the host.');
     });
 
     // Connect

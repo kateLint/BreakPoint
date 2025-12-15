@@ -212,6 +212,15 @@ export class BreakPointRealtime extends EventTarget {
 
         console.log('📨 [WS MESSAGE] Received:', msg.t, msg);
 
+        // Handle needs_invite error
+        if (msg.t === 'error' && msg.code === 'needs_invite') {
+          console.error('❌ Room requires invite:', msg.message);
+          this.close();
+          // Dispatch error event for UI to handle
+          this.dispatchEvent(new CustomEvent('error', { detail: msg }));
+          return;
+        }
+
         // Store state updates
         if (msg.t === "state" && msg.state) {
           console.log('📊 [WS STATE] Storing state:', msg.state);
