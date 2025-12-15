@@ -146,11 +146,9 @@
                     <div class="flex items-center gap-2">
                         <h1 class="text-xl font-extrabold text-slate-800 tracking-tight" id="currentRoomDisplay">Room: ROOM1</h1>
                     </div>
-                    <div class="relative">
-                        <i data-lucide="bell" class="w-6 h-6 text-slate-400"></i>
-                        <span
-                            class="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
-                    </div>
+                    <button id="shareRoomButton" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">
+                        📤 Share
+                    </button>
                 </header>
 
                 <main class="flex-1 p-6 flex flex-col justify-center gap-6">
@@ -598,6 +596,42 @@
                 <button id="cancelJoinRequest" class="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 transition-colors">
                     Cancel
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Invite Share Modal -->
+    <div id="inviteShareModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-gray-900 rounded-lg p-6 max-w-md w-full mx-4">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold text-white">📤 Invite Friends</h2>
+                <button id="closeInviteShareModal" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+            </div>
+
+            <div class="mb-4">
+                <p class="text-gray-400 mb-2">Share this link:</p>
+                <div class="flex gap-2">
+                    <input
+                        id="inviteLinkInput"
+                        type="text"
+                        readonly
+                        class="flex-1 bg-gray-800 text-white px-3 py-2 rounded border border-gray-700 focus:outline-none focus:border-purple-500"
+                        value="Generating..."
+                    />
+                    <button
+                        id="copyInviteLink"
+                        class="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+                    >
+                        📋 Copy
+                    </button>
+                </div>
+            </div>
+
+            <div class="text-center">
+                <p class="text-gray-400 mb-2">Or scan QR code:</p>
+                <div class="bg-white p-4 rounded inline-block">
+                    <canvas id="inviteQRCode" width="200" height="200"></canvas>
+                </div>
             </div>
         </div>
     </div>

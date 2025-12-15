@@ -176,6 +176,25 @@ async function connectToBackend() {
         console.error('❌ Real-time error:', e.detail);
     });
 
+    // Listen for invite_generated event
+    AppState.realtimeClient.addEventListener('invite_generated', async (e) => {
+        console.log('🎟️ Invite generated:', e.detail);
+
+        const { url, token } = e.detail;
+
+        // Update input
+        document.getElementById('inviteLinkInput').value = url;
+
+        // Generate QR code
+        try {
+            const { renderQRToCanvas } = await import('./utils/qrcode.js');
+            const canvas = document.getElementById('inviteQRCode');
+            await renderQRToCanvas(canvas, url);
+        } catch (error) {
+            console.error('Failed to generate QR code:', error);
+        }
+    });
+
     // Connect
     try {
         await AppState.realtimeClient.connect();
@@ -714,6 +733,30 @@ async function requestJoinRoom(roomId) {
 // Make globally available for inline onclick handlers
 window.requestJoinRoom = requestJoinRoom;
 
+function generateInviteLink() {
+    if (!AppState.realtimeClient || !AppState.realtimeClient.isConnected) {
+        alert('Not connected to room');
+        return;
+    }
+
+    // Show modal
+    const modal = document.getElementById('inviteShareModal');
+    modal.classList.remove('hidden');
+
+    // Reset state
+    document.getElementById('inviteLinkInput').value = 'Generating...';
+    const canvas = document.getElementById('inviteQRCode');
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#000';
+    ctx.fillText('Generating...', 50, 100);
+
+    // Send generate_invite message
+    AppState.realtimeClient.send({ v: 1, t: 'generate_invite' });
+
+    console.log('📤 Requested invite token generation');
+}
+
 function updateOnlineUsersDisplay() {
     const onlineUsers = document.getElementById('onlineUsers');
     if (!onlineUsers) return;
@@ -768,6 +811,27 @@ function setupEventListeners() {
         if (window._tempJoinRequestWs) {
             window._tempJoinRequestWs.close();
             window._tempJoinRequestWs = null;
+        }
+    });
+
+    // Invite Share
+    document.getElementById('shareRoomButton')?.addEventListener('click', generateInviteLink);
+    document.getElementById('closeInviteShareModal')?.addEventListener('click', () => {
+        document.getElementById('inviteShareModal').classList.add('hidden');
+    });
+    document.getElementById('copyInviteLink')?.addEventListener('click', async () => {
+        const input = document.getElementById('inviteLinkInput');
+        try {
+            await navigator.clipboard.writeText(input.value);
+            const btn = document.getElementById('copyInviteLink');
+            const originalText = btn.textContent;
+            btn.textContent = '✅ Copied!';
+            setTimeout(() => {
+                btn.textContent = originalText;
+            }, 2000);
+        } catch (error) {
+            console.error('Failed to copy:', error);
+            alert('Failed to copy link');
         }
     });
 
