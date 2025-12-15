@@ -525,8 +525,11 @@ export class BreakPointRoom extends DurableObject<Env> {
     }
 
     // If not a member and no valid invite, reject
+    // EXCEPT: Allow first member to join without invite (room creator)
     const existing = this.stateData.members[msg.clientId];
-    if (!existing && !validInvite) {
+    const isFirstMember = Object.keys(this.stateData.members).length === 0;
+
+    if (!existing && !validInvite && !isFirstMember) {
       this.send(ws, { v: 1, t: "error", code: "needs_invite", message: "This room requires an invite to join." });
       ws.close(1008, "Invite required");
       return;
