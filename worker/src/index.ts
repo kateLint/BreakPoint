@@ -174,6 +174,20 @@ export type Member = {
   lastSeenAt: number;        // ms epoch
 };
 
+export type InviteToken = {
+  token: string;           // 16-char crypto random
+  createdBy: string;       // clientId who generated it
+  createdAt: number;       // timestamp ms
+  expiresAt?: number;      // optional expiration
+};
+
+export type JoinRequest = {
+  clientId: string;        // requester's clientId
+  displayName: string;     // requester's name
+  avatar: string;          // requester's emoji
+  requestedAt: number;     // timestamp ms
+};
+
 export type RoomState = {
   roomId: string;
   hostClientId?: string;
@@ -181,6 +195,10 @@ export type RoomState = {
   activity?: Activity;
   promotedOptions: JsonObject[]; // Persistent list of popular options
   updatedAt: number;
+
+  // Invite system
+  inviteTokens: InviteToken[];
+  joinRequests: JoinRequest[];
 };
 
 type RoomInfo = {
@@ -238,7 +256,9 @@ export class BreakPointRoom extends DurableObject<Env> {
       roomId: "",
       members: {},
       promotedOptions: [],
-      updatedAt: nowMs()
+      updatedAt: nowMs(),
+      inviteTokens: [],
+      joinRequests: []
     };
 
     // Restore hibernated connections + load persisted state before handling events.
@@ -247,7 +267,9 @@ export class BreakPointRoom extends DurableObject<Env> {
       if (stored && typeof stored === "object" && stored.roomId && stored.members) {
         this.stateData = {
           ...stored,
-          promotedOptions: Array.isArray(stored.promotedOptions) ? stored.promotedOptions : []
+          promotedOptions: Array.isArray(stored.promotedOptions) ? stored.promotedOptions : [],
+          inviteTokens: Array.isArray(stored.inviteTokens) ? stored.inviteTokens : [],
+          joinRequests: Array.isArray(stored.joinRequests) ? stored.joinRequests : []
         };
       }
 
@@ -416,7 +438,9 @@ export class BreakPointRoom extends DurableObject<Env> {
       roomId,
       members: {},
       promotedOptions: [], // Resetting for now as per previous logic style
-      updatedAt: nowMs()
+      updatedAt: nowMs(),
+      inviteTokens: [],
+      joinRequests: []
     };
     await this.persist();
   }
