@@ -133,7 +133,7 @@ export default {
 };
 
 type ClientMessage =
-  | { v: 1; t: "hello"; clientId: string; displayName: string; avatar: string; busy?: boolean }
+  | { v: 1; t: "hello"; clientId: string; displayName: string; avatar: string; busy?: boolean; invite?: string }
   | { v: 1; t: "set_busy"; busy: boolean }
   | { v: 1; t: "activity_start"; activity: Activity }
   | { v: 1; t: "activity_update"; activityId: string; patch: JsonObject }
@@ -479,6 +479,38 @@ export class BreakPointRoom extends DurableObject<Env> {
       return;
     }
 
+    // Validate invite token if provided
+    let validInvite = false;
+    if (msg.invite) {
+      if (!isValidInviteToken(msg.invite)) {
+        this.send(ws, { v: 1, t: "error", code: "bad_invite", message: "Invalid invite token format." });
+        return;
+      }
+
+      // Check if token exists and is not expired
+      const token = this.stateData.inviteTokens.find(t => t.token === msg.invite);
+      if (!token) {
+        this.send(ws, { v: 1, t: "error", code: "invalid_invite", message: "Invite token not found or expired." });
+        return;
+      }
+
+      // Check expiration if set
+      if (token.expiresAt && nowMs() > token.expiresAt) {
+        this.send(ws, { v: 1, t: "error", code: "invite_expired", message: "Invite token has expired." });
+        return;
+      }
+
+      validInvite = true;
+    }
+
+    // If not a member and no valid invite, reject
+    const existing = this.stateData.members[msg.clientId];
+    if (!existing && !validInvite) {
+      this.send(ws, { v: 1, t: "error", code: "needs_invite", message: "This room requires an invite to join." });
+      ws.close(1008, "Invite required");
+      return;
+    }
+
     // Enforce single active socket per clientId (kick older session).
     for (const [otherWs, s] of this.sessions.entries()) {
       if (otherWs !== ws && s.clientId === msg.clientId) {
@@ -497,7 +529,6 @@ export class BreakPointRoom extends DurableObject<Env> {
     session.clientId = msg.clientId;
     ws.serializeAttachment?.({ sessionId: session.sessionId, clientId: msg.clientId } satisfies SessionAttachment);
 
-    const existing = this.stateData.members[msg.clientId];
     const t = nowMs();
     const member: Member = existing
       ? {
