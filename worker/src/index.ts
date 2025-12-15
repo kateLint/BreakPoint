@@ -449,6 +449,9 @@ export class BreakPointRoom extends DurableObject<Env> {
       }
     }
 
+    // Report to registry
+    await this.reportToRegistry();
+
     // Room cleanup alarm: if nobody is online, clear after 24h.
     const anyOnline = Object.values(this.stateData.members).some((m) => m.online);
     if (!anyOnline) {
@@ -578,6 +581,9 @@ export class BreakPointRoom extends DurableObject<Env> {
 
     this.broadcast({ v: 1, t: "member_upsert", member, hostClientId: this.stateData.hostClientId });
     this.send(ws, { v: 1, t: "state", state: serializeState(this.stateData) });
+
+    // Report to registry
+    await this.reportToRegistry();
   }
 
   private async onSetBusy(ws: WebSocket, msg: Partial<Extract<ClientMessage, { t: "set_busy" }>>): Promise<void> {
@@ -884,6 +890,39 @@ export class BreakPointRoom extends DurableObject<Env> {
     console.log('[SERVER] 📡 Broadcasting activity_upsert to', this.sessions.size, 'clients');
     this.broadcast({ v: 1, t: "activity_upsert", activity });
     console.log('[SERVER] ✅ Broadcast complete');
+  }
+
+  private async reportToRegistry(): Promise<void> {
+    try {
+      const onlineCount = Object.values(this.stateData.members).filter(m => m.online).length;
+
+      if (onlineCount === 0) {
+        // Remove from registry
+        const registryId = this.env.ROOM_REGISTRY.idFromName("global");
+        const registry = this.env.ROOM_REGISTRY.get(registryId);
+        await registry.fetch(new Request("http://registry/remove", {
+          method: "POST",
+          body: JSON.stringify({ roomId: this.stateData.roomId })
+        }));
+      } else {
+        // Report to registry
+        const hostMember = this.stateData.hostClientId ? this.stateData.members[this.stateData.hostClientId] : null;
+        const registryId = this.env.ROOM_REGISTRY.idFromName("global");
+        const registry = this.env.ROOM_REGISTRY.get(registryId);
+
+        await registry.fetch(new Request("http://registry/report", {
+          method: "POST",
+          body: JSON.stringify({
+            roomId: this.stateData.roomId,
+            onlineCount,
+            hostName: hostMember?.displayName || "Unknown"
+          })
+        }));
+      }
+    } catch (err) {
+      console.error("Failed to report to registry:", err);
+      // Don't throw - registry reporting is non-critical
+    }
   }
 
   private async onRequestJoin(ws: WebSocket, msg: Partial<Extract<ClientMessage, { t: "request_join" }>>): Promise<void> {
