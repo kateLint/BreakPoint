@@ -24,6 +24,35 @@ Three fun ways to decide where to eat:
 - Busy Mode to pause invitations
 - Real-time updates when people join
 
+## 🔐 Room System
+
+### How Rooms Work
+
+**Browse & Discover**
+- View all active rooms in real-time
+- See who's online and who's hosting
+- Find your team's rooms instantly
+
+**Join with Approval**
+- Request to join any room
+- Host approves or denies requests
+- Instant notification system
+- Social approval flow
+
+**Share with Links**
+- Generate invite links for your room
+- QR codes for easy mobile sharing
+- Anyone with the link can join directly
+- No approval needed with invite link
+
+**Privacy & Security**
+- Cryptographically secure invite tokens
+- Rate limiting prevents spam
+- Host has full control over who joins
+- Room-based access control
+
+For complete technical details, see [Room System Documentation](docs/room-system.md).
+
 ## 🚀 Getting Started
 
 ### Prerequisites
@@ -135,9 +164,12 @@ BreakPoint/
 ✅ Notification system
 ✅ Busy mode
 ✅ Service worker for offline support
+✅ Real-time multiplayer with Cloudflare Workers
+✅ Room discovery and browse system
+✅ Invite links with QR codes
+✅ Request-to-join with host approval
 
 🚧 In Progress
-- Real-time multiplayer with Cloudflare Workers
 - Push notifications
 - User authentication
 - Time-based nudge notifications
