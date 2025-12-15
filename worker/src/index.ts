@@ -143,7 +143,10 @@ type ClientMessage =
   | { v: 1; t: "spin"; activityId: string }
   | { v: 1; t: "add_poll_option"; activityId: string; option: JsonObject }
   | { v: 1; t: "activity_close"; activityId: string; result?: JsonObject }
-  | { v: 1; t: "generate_invite" };
+  | { v: 1; t: "generate_invite" }
+  | { v: 1; t: "request_join"; roomId: string; clientId: string; displayName: string; avatar: string }
+  | { v: 1; t: "approve_join"; requesterId: string }
+  | { v: 1; t: "deny_join"; requesterId: string };
 
 type ServerMessage =
   | { v: 1; t: "welcome"; sessionId: string; roomId: string }
@@ -153,7 +156,10 @@ type ServerMessage =
   | { v: 1; t: "activity_upsert"; activity: Activity }
   | { v: 1; t: "activity_result"; activityId: string; result: JsonObject }
   | { v: 1; t: "error"; code: string; message: string }
-  | { v: 1; t: "invite_generated"; token: string; url: string };
+  | { v: 1; t: "invite_generated"; token: string; url: string }
+  | { v: 1; t: "join_request"; request: JoinRequest }
+  | { v: 1; t: "join_approved"; roomId: string; inviteToken: string }
+  | { v: 1; t: "join_denied"; roomId: string; reason?: string };
 
 type ActivityKind = "drink_wheel" | "quick_poll" | "swipe_match" | "food_wheel";
 
@@ -407,6 +413,18 @@ export class BreakPointRoom extends DurableObject<Env> {
 
       case "generate_invite":
         await this.onGenerateInvite(ws, msg);
+        return;
+
+      case "request_join":
+        await this.onRequestJoin(ws, msg);
+        return;
+
+      case "approve_join":
+        await this.onApproveJoin(ws, msg);
+        return;
+
+      case "deny_join":
+        await this.onDenyJoin(ws, msg);
         return;
 
       default:
@@ -866,6 +884,131 @@ export class BreakPointRoom extends DurableObject<Env> {
     console.log('[SERVER] 📡 Broadcasting activity_upsert to', this.sessions.size, 'clients');
     this.broadcast({ v: 1, t: "activity_upsert", activity });
     console.log('[SERVER] ✅ Broadcast complete');
+  }
+
+  private async onRequestJoin(ws: WebSocket, msg: Partial<Extract<ClientMessage, { t: "request_join" }>>): Promise<void> {
+    if (!isNonEmptyString(msg.roomId, 16) || !ROOM_ID_RE.test(msg.roomId)) {
+      this.send(ws, { v: 1, t: "error", code: "bad_roomId", message: "Invalid roomId." });
+      return;
+    }
+    if (!isNonEmptyString(msg.clientId, 64) || !/^[a-zA-Z0-9_-]+$/.test(msg.clientId)) {
+      this.send(ws, { v: 1, t: "error", code: "bad_clientId", message: "Invalid clientId." });
+      return;
+    }
+    if (!isNonEmptyString(msg.displayName, 50)) {
+      this.send(ws, { v: 1, t: "error", code: "bad_displayName", message: "Invalid displayName." });
+      return;
+    }
+    if (!isNonEmptyString(msg.avatar, 8)) {
+      this.send(ws, { v: 1, t: "error", code: "bad_avatar", message: "Invalid avatar." });
+      return;
+    }
+
+    // Rate limiting: max 5 requests per clientId per hour
+    const oneHourAgo = nowMs() - 60 * 60 * 1000;
+    const recentRequests = this.stateData.joinRequests.filter(
+      r => r.clientId === msg.clientId && r.requestedAt > oneHourAgo
+    );
+
+    if (recentRequests.length >= 5) {
+      this.send(ws, { v: 1, t: "error", code: "rate_limit", message: "Too many join requests. Try again later." });
+      return;
+    }
+
+    // Check for duplicate request
+    const existingRequest = this.stateData.joinRequests.find(r => r.clientId === msg.clientId);
+    if (existingRequest) {
+      this.send(ws, { v: 1, t: "error", code: "duplicate_request", message: "You already have a pending request." });
+      return;
+    }
+
+    // Create join request
+    const request: JoinRequest = {
+      clientId: msg.clientId,
+      displayName: msg.displayName,
+      avatar: msg.avatar,
+      requestedAt: nowMs()
+    };
+
+    this.stateData.joinRequests.push(request);
+    this.stateData.updatedAt = nowMs();
+    await this.persist();
+
+    // Broadcast to all members (especially host)
+    this.broadcast({ v: 1, t: "join_request", request });
+  }
+
+  private async onApproveJoin(ws: WebSocket, msg: Partial<Extract<ClientMessage, { t: "approve_join" }>>): Promise<void> {
+    const clientId = this.clientIdFor(ws);
+    if (!clientId) return;
+
+    // Only host can approve
+    if (clientId !== this.stateData.hostClientId) {
+      this.send(ws, { v: 1, t: "error", code: "not_host", message: "Only the host can approve join requests." });
+      return;
+    }
+
+    if (!isNonEmptyString(msg.requesterId, 64)) {
+      this.send(ws, { v: 1, t: "error", code: "bad_requesterId", message: "Invalid requesterId." });
+      return;
+    }
+
+    // Find and remove request
+    const requestIndex = this.stateData.joinRequests.findIndex(r => r.clientId === msg.requesterId);
+    if (requestIndex === -1) {
+      this.send(ws, { v: 1, t: "error", code: "request_not_found", message: "Join request not found." });
+      return;
+    }
+
+    const request = this.stateData.joinRequests[requestIndex];
+    this.stateData.joinRequests.splice(requestIndex, 1);
+
+    // Generate one-time invite token for the requester
+    const token = generateInviteToken();
+    const inviteToken: InviteToken = {
+      token,
+      createdBy: clientId,
+      createdAt: nowMs(),
+      expiresAt: nowMs() + 5 * 60 * 1000  // Expires in 5 minutes
+    };
+
+    this.stateData.inviteTokens.push(inviteToken);
+    this.stateData.updatedAt = nowMs();
+    await this.persist();
+
+    // Send approval to requester (need to implement notification system later)
+    // For now, broadcast approval event
+    this.broadcast({ v: 1, t: "join_approved", roomId: this.stateData.roomId, inviteToken: token } as any);
+  }
+
+  private async onDenyJoin(ws: WebSocket, msg: Partial<Extract<ClientMessage, { t: "deny_join" }>>): Promise<void> {
+    const clientId = this.clientIdFor(ws);
+    if (!clientId) return;
+
+    // Only host can deny
+    if (clientId !== this.stateData.hostClientId) {
+      this.send(ws, { v: 1, t: "error", code: "not_host", message: "Only the host can deny join requests." });
+      return;
+    }
+
+    if (!isNonEmptyString(msg.requesterId, 64)) {
+      this.send(ws, { v: 1, t: "error", code: "bad_requesterId", message: "Invalid requesterId." });
+      return;
+    }
+
+    // Find and remove request
+    const requestIndex = this.stateData.joinRequests.findIndex(r => r.clientId === msg.requesterId);
+    if (requestIndex === -1) {
+      this.send(ws, { v: 1, t: "error", code: "request_not_found", message: "Join request not found." });
+      return;
+    }
+
+    this.stateData.joinRequests.splice(requestIndex, 1);
+    this.stateData.updatedAt = nowMs();
+    await this.persist();
+
+    // Broadcast denial
+    this.broadcast({ v: 1, t: "join_denied", roomId: this.stateData.roomId } as any);
   }
 
   private async onGenerateInvite(ws: WebSocket, msg: Partial<Extract<ClientMessage, { t: "generate_invite" }>>): Promise<void> {
