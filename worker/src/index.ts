@@ -78,6 +78,25 @@ export default {
       return json({ roomId }, { status: 201, headers: cors });
     }
 
+    // List active rooms
+    if (request.method === "GET" && url.pathname === "/api/rooms/list") {
+      if (allowed && (!origin || !allowed.has(origin))) {
+        return new Response("Forbidden origin", { status: 403 });
+      }
+
+      // Get singleton registry instance
+      const registryId = env.ROOM_REGISTRY.idFromName("global");
+      const registry = env.ROOM_REGISTRY.get(registryId);
+
+      // Forward request to registry
+      const registryReq = new Request("http://registry/list");
+      const registryRes = await registry.fetch(registryReq);
+
+      // Add CORS headers and return
+      const data = await registryRes.json();
+      return json(data, { status: 200, headers: cors });
+    }
+
     // WebSocket: /api/rooms/:roomId/ws
     const wsMatch = url.pathname.match(/^\/api\/rooms\/([A-Z0-9_-]{3,16})\/ws$/);
     if (request.method === "GET" && wsMatch) {
