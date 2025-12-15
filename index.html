@@ -125,6 +125,11 @@
                             </button>
                         </div>
                     </div>
+
+                    <!-- Browse Active Rooms Button -->
+                    <button id="browseActiveRoomsButton" class="w-full mt-4 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">
+                        🔍 Browse Active Rooms
+                    </button>
                 </main>
 
                 <div class="p-6 text-center text-xs text-slate-400">
@@ -556,6 +561,28 @@
 
         <!-- Home Indicator -->
         <div class="absolute bottom-2 left-1/2 transform -translate-x-1/2 w-32 h-1.5 bg-slate-900/20 rounded-full">
+        </div>
+    </div>
+
+    <!-- Active Rooms Modal -->
+    <div id="activeRoomsModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-gray-900 rounded-lg p-6 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold text-white">🔍 Active Rooms</h2>
+                <button id="closeActiveRoomsModal" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+            </div>
+
+            <div id="activeRoomsList" class="space-y-3">
+                <!-- Rooms will be populated here -->
+            </div>
+
+            <div id="noActiveRooms" class="hidden text-center text-gray-400 py-8">
+                No active rooms found
+            </div>
+
+            <div id="activeRoomsLoading" class="text-center text-gray-400 py-8">
+                Loading rooms...
+            </div>
         </div>
     </div>
 

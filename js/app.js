@@ -161,7 +161,7 @@ async function connectToBackend() {
 
     // Listen for activity updates
     AppState.realtimeClient.addEventListener('activity_upsert', (e) => {
-        // console.log('🎯 Activity updated:', e.detail.activity);
+        console.log('🎯 [ACTIVITY_UPSERT EVENT] Received:', e.detail.activity);
         handleActivityUpdate(e.detail.activity);
     });
 
@@ -218,17 +218,22 @@ function handleServerStateUpdate(state) {
 }
 
 function handleActivityUpdate(activity) {
-    console.log('🎯 Activity update received:', activity);
+    console.log('🎯 [handleActivityUpdate] Called with:', activity);
+    console.log('🎯 [handleActivityUpdate] Current view:', AppState.currentView);
     const payload = activity.payload || {};
 
     if (activity.kind === 'quick_poll') {
-        console.log('🗳️ Poll activity updated - restaurants:', payload.restaurants);
+        console.log('🗳️ [POLL UPDATE] Received restaurants:', payload.restaurants);
+        console.log('🗳️ [POLL UPDATE] Current local restaurants:', POLL_RESTAURANTS);
         if (payload.restaurants) {
             POLL_RESTAURANTS = payload.restaurants;
+            console.log('🗳️ [POLL UPDATE] Updated local restaurants to:', POLL_RESTAURANTS);
             // Re-render poll if we're currently viewing it
             if (AppState.currentView === 'pollView') {
-                console.log('✨ Re-rendering poll with updated data');
+                console.log('✨ [POLL UPDATE] Re-rendering poll UI now!');
                 initializePoll();
+            } else {
+                console.log('⚠️ [POLL UPDATE] Not on poll view, skipping render. Current view:', AppState.currentView);
             }
         }
     } else if (activity.kind === 'drink_wheel') {
@@ -357,17 +362,23 @@ function addCustomOption(optionName) {
     initializePoll();
 
     // Also sync to server if connected
+    console.log('📤 [ADD_OPTION] Checking connection...');
+    console.log('📤 [ADD_OPTION] isConnected:', AppState.realtimeClient?.isConnected);
+    console.log('📤 [ADD_OPTION] Client state:', AppState.realtimeClient?.state);
+
     if (AppState.realtimeClient && AppState.realtimeClient.isConnected) {
         const activity = AppState.realtimeClient.state?.activity;
+        console.log('📤 [ADD_OPTION] Current activity:', activity);
         if (activity && activity.kind === 'quick_poll') {
-            console.log('📤 Syncing custom option to server:', customOption);
-            console.log('📤 Activity ID:', activity.id);
-            AppState.realtimeClient.addPollOption(activity.id, customOption);
+            console.log('📤 [ADD_OPTION] Sending to server:', customOption);
+            console.log('📤 [ADD_OPTION] Activity ID:', activity.id);
+            const sent = AppState.realtimeClient.addPollOption(activity.id, customOption);
+            console.log('📤 [ADD_OPTION] Send result:', sent);
         } else {
-            console.warn('⚠️ No active poll activity found');
+            console.warn('⚠️ [ADD_OPTION] No active poll activity found. State:', AppState.realtimeClient.state);
         }
     } else {
-        console.warn('⚠️ Offline: Custom option added locally only');
+        console.warn('⚠️ [ADD_OPTION] Not connected. Client:', AppState.realtimeClient);
     }
 }
 
@@ -584,6 +595,75 @@ function addRoom(roomId) {
     joinRoom(roomId);
 }
 
+async function fetchActiveRooms() {
+    const apiBaseUrl = window.BREAKPOINT_API_BASE_URL || 'http://localhost:8787';
+
+    try {
+        const response = await fetch(`${apiBaseUrl}/api/rooms/list`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        return data.rooms || [];
+    } catch (error) {
+        console.error('Failed to fetch active rooms:', error);
+        return [];
+    }
+}
+
+async function showActiveRoomsModal() {
+    const modal = document.getElementById('activeRoomsModal');
+    const list = document.getElementById('activeRoomsList');
+    const loading = document.getElementById('activeRoomsLoading');
+    const noRooms = document.getElementById('noActiveRooms');
+
+    // Show modal and loading state
+    modal.classList.remove('hidden');
+    loading.classList.remove('hidden');
+    list.innerHTML = '';
+    noRooms.classList.add('hidden');
+
+    // Fetch rooms
+    const rooms = await fetchActiveRooms();
+    loading.classList.add('hidden');
+
+    if (rooms.length === 0) {
+        noRooms.classList.remove('hidden');
+        return;
+    }
+
+    // Render rooms
+    list.innerHTML = rooms.map(room => `
+        <div class="bg-gray-800 rounded-lg p-4 hover:bg-gray-700 transition-colors">
+            <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                    <span class="text-2xl">🟢</span>
+                    <span class="font-bold text-lg text-white">${escapeHtml(room.roomId)}</span>
+                </div>
+            </div>
+            <div class="text-gray-400 text-sm mb-3">
+                ${room.onlineCount} ${room.onlineCount === 1 ? 'person' : 'people'} online · Host: ${escapeHtml(room.hostName)}
+            </div>
+            <button
+                onclick="requestJoinRoom('${escapeHtml(room.roomId)}')"
+                class="w-full px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+            >
+                Request to Join
+            </button>
+        </div>
+    `).join('');
+}
+
+function escapeHtml(unsafe) {
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
 function updateOnlineUsersDisplay() {
     const onlineUsers = document.getElementById('onlineUsers');
     if (!onlineUsers) return;
@@ -622,6 +702,12 @@ function setupEventListeners() {
 
     document.getElementById('backToRooms')?.addEventListener('click', () => {
         ViewManager.show('roomSelectionView');
+    });
+
+    // Browse Active Rooms
+    document.getElementById('browseActiveRoomsButton')?.addEventListener('click', showActiveRoomsModal);
+    document.getElementById('closeActiveRoomsModal')?.addEventListener('click', () => {
+        document.getElementById('activeRoomsModal').classList.add('hidden');
     });
 
     // === Navigation ===
