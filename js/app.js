@@ -664,6 +664,56 @@ function escapeHtml(unsafe) {
         .replace(/'/g, "&#039;");
 }
 
+async function requestJoinRoom(roomId) {
+    // Close active rooms modal
+    document.getElementById('activeRoomsModal').classList.add('hidden');
+
+    // Show waiting modal
+    const waitingModal = document.getElementById('joinRequestWaitingModal');
+    document.getElementById('waitingRoomName').textContent = roomId;
+    waitingModal.classList.remove('hidden');
+
+    // Send request via WebSocket (need to establish connection first)
+    const apiBaseUrl = window.BREAKPOINT_API_BASE_URL || 'http://localhost:8787';
+    const profile = AppState.currentUser;
+
+    try {
+        // Create WebSocket connection to send request
+        const wsUrl = apiBaseUrl.replace('http://', 'ws://').replace('https://', 'wss://');
+        const ws = new WebSocket(`${wsUrl}/api/rooms/${roomId}/ws`);
+
+        ws.onopen = () => {
+            // Send join request
+            ws.send(JSON.stringify({
+                v: 1,
+                t: 'request_join',
+                roomId: roomId,
+                clientId: profile.id,
+                displayName: profile.name,
+                avatar: profile.avatar
+            }));
+
+            console.log('📤 Join request sent to', roomId);
+        };
+
+        ws.onerror = () => {
+            waitingModal.classList.add('hidden');
+            alert('Failed to connect to room. Please try again.');
+        };
+
+        // Store WebSocket for later cleanup
+        window._tempJoinRequestWs = ws;
+
+    } catch (error) {
+        console.error('Failed to request join:', error);
+        waitingModal.classList.add('hidden');
+        alert('Failed to send join request. Please try again.');
+    }
+}
+
+// Make globally available for inline onclick handlers
+window.requestJoinRoom = requestJoinRoom;
+
 function updateOnlineUsersDisplay() {
     const onlineUsers = document.getElementById('onlineUsers');
     if (!onlineUsers) return;
@@ -708,6 +758,17 @@ function setupEventListeners() {
     document.getElementById('browseActiveRoomsButton')?.addEventListener('click', showActiveRoomsModal);
     document.getElementById('closeActiveRoomsModal')?.addEventListener('click', () => {
         document.getElementById('activeRoomsModal').classList.add('hidden');
+    });
+
+    // Join Request Waiting
+    document.getElementById('cancelJoinRequest')?.addEventListener('click', () => {
+        document.getElementById('joinRequestWaitingModal').classList.add('hidden');
+
+        // Close temp WebSocket if exists
+        if (window._tempJoinRequestWs) {
+            window._tempJoinRequestWs.close();
+            window._tempJoinRequestWs = null;
+        }
     });
 
     // === Navigation ===

@@ -586,6 +586,22 @@
         </div>
     </div>
 
+    <!-- Join Request Waiting Modal -->
+    <div id="joinRequestWaitingModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-gray-900 rounded-lg p-6 max-w-sm w-full mx-4">
+            <div class="text-center">
+                <div class="text-4xl mb-4">⏳</div>
+                <h3 class="text-xl font-bold mb-2 text-white">Waiting for Approval</h3>
+                <p class="text-gray-400 mb-4">
+                    Requesting to join <span id="waitingRoomName" class="font-bold text-white"></span>...
+                </p>
+                <button id="cancelJoinRequest" class="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 transition-colors">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Backend Configuration -->
     <script>
         // Dev mode: Use same hostname as frontend to avoid CORS issues
