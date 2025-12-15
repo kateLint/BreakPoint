@@ -92,11 +92,39 @@ export const ViewManager = {
     }
 };
 
+/**
+ * Handle invite link from URL parameters
+ * Format: ?room=ROOM2&invite=abc123xyz
+ */
+function handleInviteLink() {
+    const params = new URLSearchParams(window.location.search);
+    const roomId = params.get('room');
+    const inviteToken = params.get('invite');
+
+    if (!roomId || !inviteToken) {
+        return; // Not an invite link
+    }
+
+    console.log('🎟️ Invite link detected:', { roomId, inviteToken });
+
+    // Clear URL parameters (for privacy)
+    window.history.replaceState({}, document.title, window.location.pathname);
+
+    // Store invite token temporarily
+    sessionStorage.setItem('pendingInvite', JSON.stringify({ roomId, inviteToken }));
+
+    // Auto-join the room
+    joinRoom(roomId, inviteToken);
+}
+
 function initializeApp() {
     console.log('🚀 BreakPoint initializing...');
     setupEventListeners();
     initializeWheel();
     initializeFoodWheel();
+
+    // Check for invite link in URL
+    handleInviteLink();
 
     // Show room selection first (don't auto-connect)
     renderRoomSelectionList();
@@ -111,7 +139,7 @@ function initializeApp() {
 // REAL-TIME BACKEND CONNECTION
 // ============================================
 
-async function connectToBackend() {
+async function connectToBackend(inviteToken = null) {
     if (!AppState.currentRoomId) {
         console.warn('⚠️ No room selected, skipping connection');
         return;
@@ -131,15 +159,22 @@ async function connectToBackend() {
 
     console.log(`🔌 Connecting to room: ${AppState.currentRoomId} at ${apiBaseUrl}`);
 
+    // Update profile with invite token if present
+    const profile = {
+        clientId: AppState.currentUser.id,
+        displayName: AppState.currentUser.name,
+        avatar: AppState.currentUser.avatar,
+        busy: false
+    };
+
+    if (inviteToken) {
+        profile.invite = inviteToken;
+    }
+
     AppState.realtimeClient = new BreakPointRealtime({
         apiBaseUrl,
         roomId: AppState.currentRoomId,
-        profile: {
-            clientId: AppState.currentUser.id,
-            displayName: AppState.currentUser.name,
-            avatar: AppState.currentUser.avatar,
-            busy: false
-        }
+        profile
     });
 
     // Listen for connection events
@@ -543,7 +578,15 @@ function renderRoomList() {
 }
 
 // Make globally available for onclick
-window.joinRoom = async function (roomId) {
+window.joinRoom = async function (roomId, inviteToken = null) {
+    console.log('🔌 Connecting to room:', roomId, 'at', window.BREAKPOINT_API_BASE_URL || 'http://localhost:8787');
+
+    // Disconnect from current room if any
+    if (AppState.realtimeClient) {
+        AppState.realtimeClient.disconnect();
+        AppState.realtimeClient = null;
+    }
+
     AppState.currentRoomId = roomId;
     localStorage.setItem('bp_last_room', roomId);
 
@@ -556,8 +599,8 @@ window.joinRoom = async function (roomId) {
         roomDisplay.textContent = `Room: ${roomId}`;
     }
 
-    // Connect to backend
-    await connectToBackend();
+    // Connect to backend with invite token if provided
+    await connectToBackend(inviteToken);
 
     // Update online users display
     updateOnlineUsersDisplay();

@@ -64,7 +64,11 @@ export class BreakPointRealtime extends EventTarget {
    * @returns {boolean} - True if sent successfully
    */
   send(msg) {
-    if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) return false;
+    if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
+      console.warn('📤 [WS SEND] Cannot send - not connected. ReadyState:', this.#ws?.readyState);
+      return false;
+    }
+    console.log('📤 [WS SEND] Sending message:', msg);
     this.#ws.send(JSON.stringify(msg));
     return true;
   }
@@ -166,14 +170,21 @@ export class BreakPointRealtime extends EventTarget {
         this.dispatchEvent(new CustomEvent("open"));
 
         // Send hello message with profile
-        ws.send(JSON.stringify({
+        const helloMsg = {
           v: 1,
           t: "hello",
           clientId: this.#profile.clientId,
           displayName: this.#profile.displayName,
           avatar: this.#profile.avatar,
           busy: Boolean(this.#profile.busy)
-        }));
+        };
+
+        // Include invite token if present
+        if (this.#profile.invite) {
+          helloMsg.invite = this.#profile.invite;
+        }
+
+        ws.send(JSON.stringify(helloMsg));
 
         // Remove temp listeners to avoid duplicates if we kept them
         ws.removeEventListener('open', onOpen);
@@ -199,12 +210,16 @@ export class BreakPointRealtime extends EventTarget {
         try { msg = JSON.parse(ev.data); } catch { return; }
         if (!msg || msg.v !== 1 || !msg.t) return;
 
+        console.log('📨 [WS MESSAGE] Received:', msg.t, msg);
+
         // Store state updates
         if (msg.t === "state" && msg.state) {
+          console.log('📊 [WS STATE] Storing state:', msg.state);
           this.state = msg.state;
         }
 
         // Dispatch specific event type (e.g., "state", "member_upsert")
+        console.log('📡 [WS DISPATCH] Dispatching event:', msg.t);
         this.dispatchEvent(new CustomEvent(msg.t, { detail: msg }));
 
         // Also dispatch generic "message" event
