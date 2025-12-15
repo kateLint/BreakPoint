@@ -847,16 +847,32 @@ export class RoomRegistry extends DurableObject<Env> {
       const now = Date.now();
       const fiveMinutesAgo = now - 5 * 60 * 1000;
 
+      let cleaned = false;
+
       for (const [roomId, info] of Object.entries(this.state.rooms)) {
         if (info.lastUpdated < fiveMinutesAgo) {
           delete this.state.rooms[roomId];
+          cleaned = true;
         }
       }
 
+      // Persist cleanup changes
+      if (cleaned) {
+        this.state.updatedAt = Date.now();
+        await this.ctx.storage.put("registryState", this.state);
+      }
+
       const roomList = Object.values(this.state.rooms);
-      return new Response(JSON.stringify({ rooms: roomList }), {
-        headers: { "Content-Type": "application/json" }
-      });
+
+      // Add CORS headers for consistency
+      const origin = request.headers.get("Origin");
+      const headers = new Headers({ "Content-Type": "application/json" });
+      if (origin) {
+        headers.set("Access-Control-Allow-Origin", origin);
+        headers.set("Vary", "Origin");
+      }
+
+      return new Response(JSON.stringify({ rooms: roomList }), { headers });
     }
 
     // POST /report - Room reports its status
