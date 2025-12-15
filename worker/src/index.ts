@@ -239,6 +239,20 @@ function serializeState(s: RoomState): RoomState {
   return JSON.parse(JSON.stringify(s)) as RoomState;
 }
 
+/**
+ * Generate cryptographically secure invite token (16 chars)
+ */
+function generateInviteToken(): string {
+  return crypto.randomUUID().replace(/-/g, '').substring(0, 16);
+}
+
+/**
+ * Validate invite token format
+ */
+function isValidInviteToken(token: unknown): token is string {
+  return typeof token === "string" && /^[a-zA-Z0-9]{16}$/.test(token);
+}
+
 export class BreakPointRoom extends DurableObject<Env> {
   private readonly roomId: string;
 
