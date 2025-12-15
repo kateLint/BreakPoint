@@ -9,6 +9,10 @@
       {
         "name": "BREAKPOINT_ROOMS",
         "class_name": "BreakPointRoom"
+      },
+      {
+        "name": "ROOM_REGISTRY",
+        "class_name": "RoomRegistry"
       }
     ]
   },
@@ -17,7 +21,8 @@
     {
       "tag": "v1",
       "new_sqlite_classes": [
-        "BreakPointRoom"
+        "BreakPointRoom",
+        "RoomRegistry"
       ]
     }
   ],

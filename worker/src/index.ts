@@ -4,10 +4,11 @@ type JsonObject = Record<string, unknown>;
 
 export interface Env {
   BREAKPOINT_ROOMS: DurableObjectNamespace;
+  ROOM_REGISTRY: DurableObjectNamespace;
   ALLOWED_ORIGINS?: string;
 }
 
-const ROOM_ID_RE = /^[A-Z0-9]{6,16}$/;
+const ROOM_ID_RE = /^[A-Z0-9_-]{3,16}$/;
 const MAX_MESSAGE_BYTES = 8 * 1024;
 
 function json(data: unknown, init: ResponseInit = {}): Response {
@@ -78,7 +79,7 @@ export default {
     }
 
     // WebSocket: /api/rooms/:roomId/ws
-    const wsMatch = url.pathname.match(/^\/api\/rooms\/([A-Z0-9]{6,16})\/ws$/);
+    const wsMatch = url.pathname.match(/^\/api\/rooms\/([A-Z0-9_-]{3,16})\/ws$/);
     if (request.method === "GET" && wsMatch) {
       const roomId = wsMatch[1];
       if (!ROOM_ID_RE.test(roomId)) {
@@ -160,6 +161,18 @@ export type RoomState = {
   members: Record<string, Member>;
   activity?: Activity;
   promotedOptions: JsonObject[]; // Persistent list of popular options
+  updatedAt: number;
+};
+
+type RoomInfo = {
+  roomId: string;
+  onlineCount: number;
+  hostName: string;
+  lastUpdated: number;
+};
+
+type RegistryState = {
+  rooms: Record<string, RoomInfo>;
   updatedAt: number;
 };
 
@@ -245,7 +258,7 @@ export class BreakPointRoom extends DurableObject<Env> {
 
     // Determine roomId from request path: /api/rooms/:roomId/ws
     const url = new URL(request.url);
-    const m = url.pathname.match(/^\/api\/rooms\/([A-Z0-9]{6,16})\/ws$/);
+    const m = url.pathname.match(/^\/api\/rooms\/([A-Z0-9_-]{3,16})\/ws$/);
     if (!m) return new Response("Bad WebSocket path", { status: 404 });
     const roomId = m[1];
 
@@ -698,25 +711,35 @@ export class BreakPointRoom extends DurableObject<Env> {
   }
 
   private async onAddPollOption(ws: WebSocket, msg: Partial<Extract<ClientMessage, { t: "add_poll_option" }>>): Promise<void> {
+    console.log('[SERVER] 📥 onAddPollOption called with:', msg);
     const clientId = this.clientIdFor(ws);
-    if (!clientId) return;
+    if (!clientId) {
+      console.log('[SERVER] ❌ No clientId found');
+      return;
+    }
+    console.log('[SERVER] ✅ Client ID:', clientId);
 
     if (!isNonEmptyString(msg.activityId, 80)) {
+      console.log('[SERVER] ❌ Invalid activityId');
       this.send(ws, { v: 1, t: "error", code: "bad_add_option", message: "Invalid add_poll_option." });
       return;
     }
     if (!msg.option || typeof msg.option !== "object") {
+      console.log('[SERVER] ❌ Invalid option data');
       this.send(ws, { v: 1, t: "error", code: "bad_option", message: "Invalid option data." });
       return;
     }
 
     const activity = this.stateData.activity;
+    console.log('[SERVER] 📊 Current activity:', activity);
     if (!activity || activity.id !== msg.activityId || activity.status !== "open") {
+      console.log('[SERVER] ❌ No open matching activity. Activity ID requested:', msg.activityId, 'Current:', activity?.id);
       this.send(ws, { v: 1, t: "error", code: "no_activity", message: "No open matching activity." });
       return;
     }
 
     if (activity.kind !== "quick_poll") {
+      console.log('[SERVER] ❌ Activity is not a poll, kind:', activity.kind);
       this.send(ws, { v: 1, t: "error", code: "wrong_kind", message: "Activity is not a poll." });
       return;
     }
@@ -724,18 +747,21 @@ export class BreakPointRoom extends DurableObject<Env> {
     // Add option to payload.restaurants array
     const payload = activity.payload as JsonObject;
     const restaurants = (Array.isArray(payload.restaurants) ? payload.restaurants : []) as JsonObject[];
+    console.log('[SERVER] 🍽️ Current restaurants:', restaurants);
 
     // Check for duplicates (by id or name)
     const newOption = msg.option as any;
     const exists = restaurants.some((r: any) => r.id === newOption.id || r.name === newOption.name);
 
     if (exists) {
+      console.log('[SERVER] ⚠️ Option already exists, ignoring');
       // Silent ignore or error? Let's ignore to avoid spamming errors for race conditions.
       return;
     }
 
     restaurants.push(msg.option);
     payload.restaurants = restaurants;
+    console.log('[SERVER] ✅ Added option. New restaurants:', restaurants);
 
     // Auto-vote for the creator of the option? Maybe not.
 
@@ -743,7 +769,9 @@ export class BreakPointRoom extends DurableObject<Env> {
     this.stateData.updatedAt = nowMs();
     await this.persist();
 
+    console.log('[SERVER] 📡 Broadcasting activity_upsert to', this.sessions.size, 'clients');
     this.broadcast({ v: 1, t: "activity_upsert", activity });
+    console.log('[SERVER] ✅ Broadcast complete');
   }
 
   private clientIdFor(ws: WebSocket): string | null {
@@ -771,16 +799,106 @@ export class BreakPointRoom extends DurableObject<Env> {
 
   private broadcast(msg: ServerMessage): void {
     const payload = JSON.stringify(msg);
+    console.log('[SERVER] 📡 Broadcasting to', this.sessions.size, 'clients:', msg.t);
+    let sent = 0;
     for (const ws of this.sessions.keys()) {
       try {
         ws.send(payload);
-      } catch {
+        sent++;
+      } catch (err) {
+        console.log('[SERVER] ⚠️ Failed to send to one client:', err);
         // Ignore send failures; runtime will call webSocketClose eventually.
       }
     }
+    console.log('[SERVER] ✅ Broadcast sent to', sent, 'clients');
   }
 
   private async persist(): Promise<void> {
     await this.ctx.storage.put("roomState", this.stateData);
+  }
+}
+
+/**
+ * RoomRegistry - Singleton DO that tracks all active rooms
+ */
+export class RoomRegistry extends DurableObject<Env> {
+  private state: RegistryState = {
+    rooms: {},
+    updatedAt: Date.now()
+  };
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+
+    this.ctx.blockConcurrencyWhile(async () => {
+      const stored = await this.ctx.storage.get<RegistryState>("registryState");
+      if (stored && typeof stored === "object" && stored.rooms) {
+        this.state = stored;
+      }
+    });
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+
+    // GET /list - Return all active rooms
+    if (request.method === "GET" && url.pathname === "/list") {
+      // Clean up stale rooms (not updated in 5 minutes)
+      const now = Date.now();
+      const fiveMinutesAgo = now - 5 * 60 * 1000;
+
+      for (const [roomId, info] of Object.entries(this.state.rooms)) {
+        if (info.lastUpdated < fiveMinutesAgo) {
+          delete this.state.rooms[roomId];
+        }
+      }
+
+      const roomList = Object.values(this.state.rooms);
+      return new Response(JSON.stringify({ rooms: roomList }), {
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
+    // POST /report - Room reports its status
+    if (request.method === "POST" && url.pathname === "/report") {
+      const body = await request.json() as Partial<RoomInfo>;
+
+      if (!body.roomId || typeof body.onlineCount !== "number") {
+        return new Response("Invalid report", { status: 400 });
+      }
+
+      this.state.rooms[body.roomId] = {
+        roomId: body.roomId,
+        onlineCount: body.onlineCount,
+        hostName: body.hostName || "Unknown",
+        lastUpdated: Date.now()
+      };
+
+      this.state.updatedAt = Date.now();
+      await this.ctx.storage.put("registryState", this.state);
+
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
+    // POST /remove - Room reports it's empty
+    if (request.method === "POST" && url.pathname === "/remove") {
+      const body = await request.json() as { roomId: string };
+
+      if (!body.roomId) {
+        return new Response("Invalid roomId", { status: 400 });
+      }
+
+      delete this.state.rooms[body.roomId];
+      this.state.updatedAt = Date.now();
+      await this.ctx.storage.put("registryState", this.state);
+
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
+    return new Response("Not found", { status: 404 });
   }
 }
