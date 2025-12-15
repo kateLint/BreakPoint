@@ -142,7 +142,8 @@ type ClientMessage =
   | { v: 1; t: "vote"; activityId: string; vote: JsonObject }
   | { v: 1; t: "spin"; activityId: string }
   | { v: 1; t: "add_poll_option"; activityId: string; option: JsonObject }
-  | { v: 1; t: "activity_close"; activityId: string; result?: JsonObject };
+  | { v: 1; t: "activity_close"; activityId: string; result?: JsonObject }
+  | { v: 1; t: "generate_invite" };
 
 type ServerMessage =
   | { v: 1; t: "welcome"; sessionId: string; roomId: string }
@@ -151,7 +152,8 @@ type ServerMessage =
   | { v: 1; t: "member_offline"; clientId: string; hostClientId?: string }
   | { v: 1; t: "activity_upsert"; activity: Activity }
   | { v: 1; t: "activity_result"; activityId: string; result: JsonObject }
-  | { v: 1; t: "error"; code: string; message: string };
+  | { v: 1; t: "error"; code: string; message: string }
+  | { v: 1; t: "invite_generated"; token: string; url: string };
 
 type ActivityKind = "drink_wheel" | "quick_poll" | "swipe_match" | "food_wheel";
 
@@ -401,6 +403,10 @@ export class BreakPointRoom extends DurableObject<Env> {
 
       case "add_poll_option":
         await this.onAddPollOption(ws, msg);
+        return;
+
+      case "generate_invite":
+        await this.onGenerateInvite(ws, msg);
         return;
 
       default:
@@ -829,6 +835,38 @@ export class BreakPointRoom extends DurableObject<Env> {
     console.log('[SERVER] 📡 Broadcasting activity_upsert to', this.sessions.size, 'clients');
     this.broadcast({ v: 1, t: "activity_upsert", activity });
     console.log('[SERVER] ✅ Broadcast complete');
+  }
+
+  private async onGenerateInvite(ws: WebSocket, msg: Partial<Extract<ClientMessage, { t: "generate_invite" }>>): Promise<void> {
+    const clientId = this.clientIdFor(ws);
+    if (!clientId) return;
+
+    // Rate limiting: max 10 tokens per room per hour
+    const oneHourAgo = nowMs() - 60 * 60 * 1000;
+    const recentTokens = this.stateData.inviteTokens.filter(t => t.createdAt > oneHourAgo);
+
+    if (recentTokens.length >= 10) {
+      this.send(ws, { v: 1, t: "error", code: "rate_limit", message: "Too many invite tokens generated. Try again later." });
+      return;
+    }
+
+    // Generate token
+    const token = generateInviteToken();
+    const inviteToken: InviteToken = {
+      token,
+      createdBy: clientId,
+      createdAt: nowMs()
+    };
+
+    this.stateData.inviteTokens.push(inviteToken);
+    this.stateData.updatedAt = nowMs();
+    await this.persist();
+
+    // Build invite URL (will be used by client)
+    const baseUrl = "http://localhost:8000"; // TODO: Make this configurable
+    const url = `${baseUrl}/?room=${this.stateData.roomId}&invite=${token}`;
+
+    this.send(ws, { v: 1, t: "invite_generated", token, url });
   }
 
   private clientIdFor(ws: WebSocket): string | null {
