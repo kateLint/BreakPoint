@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.vscode/
+.idea/
+.claude/
+
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.local
+.dev.vars
+
+# Build outputs
+dist/
+build/
+.wrangler/

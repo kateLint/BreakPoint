@@ -75,6 +75,23 @@ export default {
         return new Response("Forbidden origin", { status: 403 });
       }
       const roomId = generateRoomCode(8);
+
+      // Register immediately
+      try {
+        const registryId = env.ROOM_REGISTRY.idFromName("global");
+        const registry = env.ROOM_REGISTRY.get(registryId);
+        await registry.fetch(new Request("http://registry/report", {
+          method: "POST",
+          body: JSON.stringify({
+            roomId,
+            onlineCount: 0,
+            hostName: "Waiting for host..."
+          })
+        }));
+      } catch (e) {
+        console.error("Failed to register new room:", e);
+      }
+
       return json({ roomId }, { status: 201, headers: cors });
     }
 
@@ -133,7 +150,7 @@ export default {
 };
 
 type ClientMessage =
-  | { v: 1; t: "hello"; clientId: string; displayName: string; avatar: string; busy?: boolean; invite?: string }
+  | { v: 1; t: "hello"; clientId: string; displayName: string; avatar: string; busy?: boolean; invite?: string; adminKey?: string }
   | { v: 1; t: "set_busy"; busy: boolean }
   | { v: 1; t: "activity_start"; activity: Activity }
   | { v: 1; t: "activity_update"; activityId: string; patch: JsonObject }
@@ -145,11 +162,13 @@ type ClientMessage =
   | { v: 1; t: "activity_close"; activityId: string; result?: JsonObject }
   | { v: 1; t: "generate_invite" }
   | { v: 1; t: "request_join"; roomId: string; clientId: string; displayName: string; avatar: string }
+  | { v: 1; t: "request_join"; roomId: string; clientId: string; displayName: string; avatar: string }
   | { v: 1; t: "approve_join"; requesterId: string }
-  | { v: 1; t: "deny_join"; requesterId: string };
+  | { v: 1; t: "deny_join"; requesterId: string }
+  | { v: 1; t: "claim_admin"; adminKey: string };
 
 type ServerMessage =
-  | { v: 1; t: "welcome"; sessionId: string; roomId: string }
+  | { v: 1; t: "welcome"; sessionId: string; roomId: string; adminKey?: string }
   | { v: 1; t: "state"; state: RoomState }
   | { v: 1; t: "member_upsert"; member: Member; hostClientId?: string }
   | { v: 1; t: "member_offline"; clientId: string; hostClientId?: string }
@@ -198,6 +217,7 @@ export type JoinRequest = {
 
 export type RoomState = {
   roomId: string;
+  adminKey?: string; // Secret key for the owner
   hostClientId?: string;
   members: Record<string, Member>;
   activity?: Activity;
@@ -265,6 +285,7 @@ export class BreakPointRoom extends DurableObject<Env> {
   private readonly roomId: string;
 
   private sessions: Map<WebSocket, Session> = new Map();
+  private pendingJoinRequests: Map<string, WebSocket> = new Map(); // clientId -> WebSocket
   private stateData: RoomState;
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -427,6 +448,15 @@ export class BreakPointRoom extends DurableObject<Env> {
         await this.onDenyJoin(ws, msg);
         return;
 
+      case "deny_join":
+        await this.onDenyJoin(ws, msg);
+        return;
+
+      case "claim_admin":
+        // Optional explicit claim message?
+        // For now we handle it in hello, but good to have if we want late-claim.
+        return;
+
       default:
         this.send(ws, { v: 1, t: "error", code: "unknown_type", message: `Unknown message type: ${msg.t}` });
     }
@@ -435,6 +465,23 @@ export class BreakPointRoom extends DurableObject<Env> {
   async webSocketClose(ws: WebSocket): Promise<void> {
     const session = this.sessions.get(ws);
     this.sessions.delete(ws);
+
+    // Clean up pending join requests
+    for (const [clientId, pendingWs] of this.pendingJoinRequests.entries()) {
+      if (pendingWs === ws) {
+        this.pendingJoinRequests.delete(clientId);
+        // Remove from join requests if still pending
+        const requestIndex = this.stateData.joinRequests.findIndex(r => r.clientId === clientId);
+        if (requestIndex !== -1) {
+          this.stateData.joinRequests.splice(requestIndex, 1);
+          this.stateData.updatedAt = nowMs();
+          await this.persist();
+          // Broadcast state update to all current members
+          this.broadcast({ v: 1, t: "state", state: serializeState(this.stateData) });
+        }
+        break;
+      }
+    }
 
     if (session?.clientId) {
       const member = this.stateData.members[session.clientId];
@@ -524,12 +571,64 @@ export class BreakPointRoom extends DurableObject<Env> {
       validInvite = true;
     }
 
-    // If not a member and no valid invite, reject
-    // EXCEPT: Allow first member to join without invite (room creator)
-    const existing = this.stateData.members[msg.clientId];
+    // Verify Admin Key if provided
+    // If provided and correct -> user becomes HOST (reclaims ownership).
+    // If NOT provided but room has NO admin key -> Generates new one (First creator).
+
+    let isAdmin = false;
+    let newAdminKey: string | undefined = undefined;
+
+    // SCENARIO 1: Claiming with existing key
+    if (this.stateData.adminKey) {
+      // Check if client provided key (we need to accept it in hello msg)
+      // Note: We need to update ClientMessage definition to include adminKey in hello?
+      // Or strict typing says no. Let's look at `msg` type.
+      // It's `Partial<Extract<ClientMessage, { t: "hello" }>>`.
+      // We need to extend the type definition above to include adminKey.
+      const suppliedKey = (msg as any).adminKey;
+      if (suppliedKey && suppliedKey === this.stateData.adminKey) {
+        isAdmin = true;
+      }
+    }
+    // SCENARIO 2: First creation (No admin key yet)
+    else {
+      // If room has no admin key, the first person to join implies creation/ownership.
+      // We generate one now.
+      this.stateData.adminKey = "sk_" + generateRoomCode(12); // Simple random string
+      isAdmin = true;
+      newAdminKey = this.stateData.adminKey;
+    }
+
     const isFirstMember = Object.keys(this.stateData.members).length === 0;
 
-    if (!existing && !validInvite && !isFirstMember) {
+    // LOCK: If room has admin key, and we enter as Stranger (not admin),
+    // and room is EMPTY (or host missing), we DO NOT become host automatically.
+    // We only become host if we are Admin.
+
+    // However, if we are NOT admin, can we join?
+    // If the room is "Open" (public link), yes?
+    // If room requires invite... currently we allow joining if isFirstMember.
+    // CHANGE: If isFirstMember AND not Admin -> REJECT?
+    // "if room is empty there still an owner... I dont want random people to become host"
+    // So if I am a stranger and I try to join an empty room, I should be blocked?
+    // OR I can join but I am NOT the host.
+
+    if (this.stateData.adminKey && !isAdmin && isFirstMember && !validInvite) {
+      // Room exists, has an owner (somewhere), but is currently empty.
+      // Stranger tries to join.
+      // If they have no invite -> Reject?
+      // "only owner... can approve people in".
+      // If owner is offline, nobody can approve.
+      // So Stranger waits? Or is rejected?
+      // Let's reject with "waiting_for_host" code.
+      this.send(ws, { v: 1, t: "error", code: "room_locked", message: "Room is empty and locked. Wait for the host to join." });
+      ws.close(1008, "Room Locked");
+      return;
+    }
+
+    const existing = this.stateData.members[msg.clientId];
+
+    if (!existing && !validInvite && !isFirstMember && !isAdmin) {
       this.send(ws, { v: 1, t: "error", code: "needs_invite", message: "This room requires an invite to join." });
       ws.close(1008, "Invite required");
       return;
@@ -575,14 +674,38 @@ export class BreakPointRoom extends DurableObject<Env> {
 
     this.stateData.members[msg.clientId] = member;
 
-    if (!this.stateData.hostClientId) {
+    // HOST ASSIGNMENT
+    // 1. If I am Admin, I FORCE myself as host.
+    if (isAdmin) {
       this.stateData.hostClientId = msg.clientId;
     }
+    // 2. If no host exists (e.g. host left), and I am NOT admin...
+    // logic used to auto-assign new host.
+    // NOW: We only auto-assign if there is NO admin key (legacy rooms).
+    // If there IS an admin key, only the admin can be host.
+    // Or maybe we allow delegation? "only owner can approve".
+    // Let's go strict: Only Admin is Host.
+    else if (!this.stateData.hostClientId && !this.stateData.adminKey) {
+      // Legacy behavior for rooms without keys
+      this.stateData.hostClientId = msg.clientId;
+    }
+    // If I am not admin, and host is missing, I am just a member.
+    // But who approves me? I already passed the checks above.
 
     this.stateData.updatedAt = t;
     await this.persist();
 
     this.broadcast({ v: 1, t: "member_upsert", member, hostClientId: this.stateData.hostClientId });
+
+    // Send welcome, including adminKey ONLY if I am the admin (and it's new or I claimed it)
+    this.send(ws, {
+      v: 1,
+      t: "welcome",
+      sessionId: session.sessionId,
+      roomId: this.stateData.roomId,
+      adminKey: isAdmin ? (newAdminKey || this.stateData.adminKey) : undefined
+    });
+
     this.send(ws, { v: 1, t: "state", state: serializeState(this.stateData) });
 
     // Report to registry
@@ -900,12 +1023,18 @@ export class BreakPointRoom extends DurableObject<Env> {
       const onlineCount = Object.values(this.stateData.members).filter(m => m.online).length;
 
       if (onlineCount === 0) {
-        // Remove from registry
+        // Even if empty, we report it to keep it visible (persistence).
+        // It will be cleaned up by Registry only after 24h of inactivity.
         const registryId = this.env.ROOM_REGISTRY.idFromName("global");
         const registry = this.env.ROOM_REGISTRY.get(registryId);
-        await registry.fetch(new Request("http://registry/remove", {
+
+        await registry.fetch(new Request("http://registry/report", {
           method: "POST",
-          body: JSON.stringify({ roomId: this.stateData.roomId })
+          body: JSON.stringify({
+            roomId: this.stateData.roomId,
+            onlineCount: 0,
+            hostName: "Empty"
+          })
         }));
       } else {
         // Report to registry
@@ -976,6 +1105,9 @@ export class BreakPointRoom extends DurableObject<Env> {
     this.stateData.updatedAt = nowMs();
     await this.persist();
 
+    // Store WebSocket for later approval/denial notification
+    this.pendingJoinRequests.set(msg.clientId, ws);
+
     // Broadcast to all members (especially host)
     this.broadcast({ v: 1, t: "join_request", request });
   }
@@ -1018,9 +1150,15 @@ export class BreakPointRoom extends DurableObject<Env> {
     this.stateData.updatedAt = nowMs();
     await this.persist();
 
-    // Send approval to requester (need to implement notification system later)
-    // For now, broadcast approval event
-    this.broadcast({ v: 1, t: "join_approved", roomId: this.stateData.roomId, inviteToken: token } as any);
+    // Send approval directly to the requester's WebSocket
+    const requesterWs = this.pendingJoinRequests.get(msg.requesterId);
+    if (requesterWs) {
+      this.send(requesterWs, { v: 1, t: "join_approved", roomId: this.stateData.roomId, inviteToken: token } as any);
+      this.pendingJoinRequests.delete(msg.requesterId);
+    }
+
+    // Also broadcast state update to all current members
+    this.broadcast({ v: 1, t: "state", state: serializeState(this.stateData) });
   }
 
   private async onDenyJoin(ws: WebSocket, msg: Partial<Extract<ClientMessage, { t: "deny_join" }>>): Promise<void> {
@@ -1049,8 +1187,15 @@ export class BreakPointRoom extends DurableObject<Env> {
     this.stateData.updatedAt = nowMs();
     await this.persist();
 
-    // Broadcast denial
-    this.broadcast({ v: 1, t: "join_denied", roomId: this.stateData.roomId } as any);
+    // Send denial directly to the requester's WebSocket
+    const requesterWs = this.pendingJoinRequests.get(msg.requesterId);
+    if (requesterWs) {
+      this.send(requesterWs, { v: 1, t: "join_denied", roomId: this.stateData.roomId } as any);
+      this.pendingJoinRequests.delete(msg.requesterId);
+    }
+
+    // Also broadcast state update to all current members
+    this.broadcast({ v: 1, t: "state", state: serializeState(this.stateData) });
   }
 
   private async onGenerateInvite(ws: WebSocket, msg: Partial<Extract<ClientMessage, { t: "generate_invite" }>>): Promise<void> {
@@ -1154,14 +1299,14 @@ export class RoomRegistry extends DurableObject<Env> {
 
     // GET /list - Return all active rooms
     if (request.method === "GET" && url.pathname === "/list") {
-      // Clean up stale rooms (not updated in 5 minutes)
+      // Clean up stale rooms (not updated in 24 hours)
       const now = Date.now();
-      const fiveMinutesAgo = now - 5 * 60 * 1000;
+      const oneDayAgo = now - 24 * 60 * 60 * 1000;
 
       let cleaned = false;
 
       for (const [roomId, info] of Object.entries(this.state.rooms)) {
-        if (info.lastUpdated < fiveMinutesAgo) {
+        if (info.lastUpdated < oneDayAgo) {
           delete this.state.rooms[roomId];
           cleaned = true;
         }
@@ -1173,7 +1318,13 @@ export class RoomRegistry extends DurableObject<Env> {
         await this.ctx.storage.put("registryState", this.state);
       }
 
-      const roomList = Object.values(this.state.rooms);
+      // Sort: Most online first, then by recency
+      const roomList = Object.values(this.state.rooms).sort((a, b) => {
+        if (a.onlineCount !== b.onlineCount) {
+          return b.onlineCount - a.onlineCount; // More users first
+        }
+        return b.lastUpdated - a.lastUpdated; // Newer activity first
+      });
 
       // Add CORS headers for consistency
       const origin = request.headers.get("Origin");

@@ -176,12 +176,16 @@ export class BreakPointRealtime extends EventTarget {
           clientId: this.#profile.clientId,
           displayName: this.#profile.displayName,
           avatar: this.#profile.avatar,
+          avatar: this.#profile.avatar,
           busy: Boolean(this.#profile.busy)
         };
 
-        // Include invite token if present
+        // Include invite token or admin key if present
         if (this.#profile.invite) {
           helloMsg.invite = this.#profile.invite;
+        }
+        if (this.#profile.adminKey) {
+          helloMsg.adminKey = this.#profile.adminKey;
         }
 
         ws.send(JSON.stringify(helloMsg));

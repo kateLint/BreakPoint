@@ -13,11 +13,12 @@ export const AppState = {
     currentUser: { id: getOrCreateClientId(), name: 'You', avatar: '😊' },
     realtimeClient: null,
     currentRoomId: null,
-    savedRooms: ['ROOM1'], // Default room
+    savedRooms: ['ROOM1'], // Legacy: array of room IDs
+    roomMetadata: {}, // New: { roomId: { isCreator: bool, isMember: bool, savedAt: timestamp } }
     isHost: false
 };
 
-// Load saved rooms
+// Load saved rooms (legacy format)
 const saved = localStorage.getItem('bp_saved_rooms');
 if (saved) {
     try {
@@ -27,6 +28,16 @@ if (saved) {
         }
     } catch {
         AppState.savedRooms = ['ROOM1'];
+    }
+}
+
+// Load room metadata
+const metadata = localStorage.getItem('bp_room_metadata');
+if (metadata) {
+    try {
+        AppState.roomMetadata = JSON.parse(metadata);
+    } catch {
+        AppState.roomMetadata = {};
     }
 }
 
@@ -108,13 +119,23 @@ function handleInviteLink() {
     console.log('🎟️ Invite link detected:', { roomId, inviteToken });
 
     // Clear URL parameters (for privacy)
-    window.history.replaceState({}, document.title, window.location.pathname);
+    // window.history.replaceState({}, document.title, window.location.pathname);
+    // WAIT: We might want to keep adminKey in URL? 
+    // Actually, let's process adminKey first.
 
-    // Store invite token temporarily
-    sessionStorage.setItem('pendingInvite', JSON.stringify({ roomId, inviteToken }));
+    const adminKey = params.get('adminKey');
+    if (adminKey && roomId) {
+        saveAdminKey(roomId, adminKey);
+    }
 
-    // Auto-join the room
-    joinRoom(roomId, inviteToken);
+    // Now clear URL if it was an invite
+    if (inviteToken) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+        // Store invite token temporarily
+        sessionStorage.setItem('pendingInvite', JSON.stringify({ roomId, inviteToken }));
+        // Auto-join the room
+        joinRoom(roomId, inviteToken);
+    }
 }
 
 function initializeApp() {
@@ -138,6 +159,73 @@ function initializeApp() {
 // ============================================
 // REAL-TIME BACKEND CONNECTION
 // ============================================
+
+function getAdminKey(roomId) {
+    try {
+        const keys = JSON.parse(localStorage.getItem('bp_admin_keys') || '{}');
+        return keys[roomId];
+    } catch {
+        return null;
+    }
+}
+
+function saveAdminKey(roomId, key) {
+    try {
+        const keys = JSON.parse(localStorage.getItem('bp_admin_keys') || '{}');
+        keys[roomId] = key;
+        localStorage.setItem('bp_admin_keys', JSON.stringify(keys));
+        console.log('🔑 Saved admin key for room', roomId);
+    } catch (e) {
+        console.error('Failed to save admin key', e);
+    }
+}
+
+/**
+ * Save room to persistent list with metadata
+ * @param {string} roomId - Room identifier
+ * @param {object} options - { isCreator: bool, isMember: bool }
+ */
+function saveRoomToList(roomId, options = {}) {
+    // Add to legacy savedRooms array if not already there
+    if (!AppState.savedRooms.includes(roomId)) {
+        AppState.savedRooms.push(roomId);
+        localStorage.setItem('bp_saved_rooms', JSON.stringify(AppState.savedRooms));
+    }
+
+    // Save metadata
+    AppState.roomMetadata[roomId] = {
+        isCreator: options.isCreator || false,
+        isMember: options.isMember || false,
+        savedAt: Date.now()
+    };
+    localStorage.setItem('bp_room_metadata', JSON.stringify(AppState.roomMetadata));
+    console.log('💾 Saved room to list:', roomId, AppState.roomMetadata[roomId]);
+}
+
+/**
+ * Get room metadata
+ * @param {string} roomId
+ * @returns {object|null} { isCreator, isMember, savedAt }
+ */
+function getRoomMetadata(roomId) {
+    return AppState.roomMetadata[roomId] || null;
+}
+
+/**
+ * Remove room from saved list (hide/leave)
+ * @param {string} roomId
+ */
+function removeRoomFromList(roomId) {
+    // Remove from legacy array
+    AppState.savedRooms = AppState.savedRooms.filter(r => r !== roomId);
+    localStorage.setItem('bp_saved_rooms', JSON.stringify(AppState.savedRooms));
+
+    // Remove metadata
+    delete AppState.roomMetadata[roomId];
+    localStorage.setItem('bp_room_metadata', JSON.stringify(AppState.roomMetadata));
+
+    console.log('🗑️ Removed room from list:', roomId);
+}
 
 async function connectToBackend(inviteToken = null) {
     if (!AppState.currentRoomId) {
@@ -164,8 +252,17 @@ async function connectToBackend(inviteToken = null) {
         clientId: AppState.currentUser.id,
         displayName: AppState.currentUser.name,
         avatar: AppState.currentUser.avatar,
+        displayName: AppState.currentUser.name,
+        avatar: AppState.currentUser.avatar,
         busy: false
     };
+
+    // Check for Admin Key
+    const adminKey = getAdminKey(AppState.currentRoomId);
+    if (adminKey) {
+        console.log('🔑 Found admin key for this room, using it.');
+        profile.adminKey = adminKey;
+    }
 
     if (inviteToken) {
         profile.invite = inviteToken;
@@ -185,7 +282,44 @@ async function connectToBackend(inviteToken = null) {
         if (roomDisplay) {
             roomDisplay.innerText = `Room: ${AppState.currentRoomId}`;
         }
+        AppState.isHost = e.detail.isHost;
+
+        // Check if we received an admin key (we just created the room or claimed it)
+        if (e.detail.adminKey) {
+            console.log('🔑 Received new Admin Key from server!');
+            saveAdminKey(e.detail.roomId, e.detail.adminKey);
+
+            // Save room as creator
+            saveRoomToList(e.detail.roomId, { isCreator: true, isMember: true });
+
+            // Update URL to include it (so user can bookmark)
+            // Only update if not already there
+            const url = new URL(window.location);
+            if (url.searchParams.get('room') === e.detail.roomId && !url.searchParams.get('adminKey')) {
+                url.searchParams.set('adminKey', e.detail.adminKey);
+                window.history.replaceState({}, '', url);
+                console.log('🔗 Updated URL with Admin Key');
+            }
+        } else {
+            // No admin key means we're a member (joined via invite or approval)
+            // Save room as member only
+            const metadata = getRoomMetadata(e.detail.roomId);
+            if (!metadata || !metadata.isCreator) {
+                saveRoomToList(e.detail.roomId, { isCreator: false, isMember: true });
+            }
+        }
+
         updateOnlineUsersDisplay();
+
+        // Update Admin Link Button visibility
+        const adminBtn = document.getElementById('copyAdminLinkButton');
+        if (adminBtn) {
+            if (AppState.isHost && (e.detail.adminKey || getAdminKey(AppState.currentRoomId))) {
+                adminBtn.classList.remove('hidden');
+            } else {
+                adminBtn.classList.add('hidden');
+            }
+        }
     });
 
     // Listen for state updates
@@ -215,6 +349,11 @@ async function connectToBackend(inviteToken = null) {
             ViewManager.show('roomSelectionView');
         } else if (e.detail.code === 'invalid_invite') {
             alert('Invalid or expired invite link.');
+        } else if (e.detail.code === 'invalid_invite') {
+            alert('Invalid or expired invite link.');
+            ViewManager.show('roomSelectionView');
+        } else if (e.detail.code === 'room_locked') {
+            alert('🔒 Room is Locked!\n\nThis room is empty but owned by someone else. You cannot become the Host.\n\nPlease wait for the Host to join first.');
             ViewManager.show('roomSelectionView');
         }
     });
@@ -323,6 +462,9 @@ function handleServerStateUpdate(state) {
 
     // Update online users display
     updateOnlineUsersDisplay();
+
+    // Update join request badge
+    updateJoinRequestBadge();
 }
 
 function handleActivityUpdate(activity) {
@@ -575,23 +717,57 @@ function renderRoomSelectionList() {
     if (!list) return;
 
     list.innerHTML = AppState.savedRooms.map(roomId => {
+        const metadata = getRoomMetadata(roomId);
+        const isCreator = metadata?.isCreator || false;
+        const isMember = metadata?.isMember || false;
+
+        const badge = isCreator
+            ? '<span class="text-xs bg-purple-600 text-white px-3 py-1 rounded-full font-medium">Creator</span>'
+            : isMember
+            ? '<span class="text-xs bg-green-600 text-white px-3 py-1 rounded-full font-medium">Member</span>'
+            : '<span class="text-xs bg-gray-400 text-white px-3 py-1 rounded-full font-medium">Public</span>';
+
+        const subtitle = isCreator
+            ? 'Your room - direct access'
+            : isMember
+            ? 'Member - direct access'
+            : 'Tap to join room';
+
+        const deleteButton = (isCreator || isMember) ? `
+            <button onclick="event.stopPropagation(); removeRoom('${roomId}')"
+                class="text-slate-400 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition-all"
+                title="${isCreator ? 'Delete room' : 'Hide room'}">
+                <i data-lucide="${isCreator ? 'trash-2' : 'eye-off'}" class="w-4 h-4"></i>
+            </button>
+        ` : '';
+
+        const iconBg = isCreator ? 'bg-gradient-to-br from-purple-500 to-pink-500' : isMember ? 'bg-gradient-to-br from-green-500 to-emerald-500' : 'bg-gradient-to-br from-slate-400 to-slate-500';
+        const icon = isCreator ? 'crown' : 'users';
+
         return `
-            <button class="group relative overflow-hidden bg-white p-6 rounded-3xl shadow-lg border-2 border-transparent hover:border-purple-200 transition-all active:scale-95 text-left w-full"
+            <button class="group relative bg-white rounded-2xl shadow-md border border-slate-200 hover:shadow-xl hover:border-purple-300 transition-all active:scale-98 text-left w-full overflow-hidden"
                  onclick="joinRoom('${roomId}')">
-                <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                    <i data-lucide="users" class="w-20 h-20 text-purple-500" stroke-width="1.5"></i>
+                <!-- Header Bar -->
+                <div class="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-slate-50 to-white border-b border-slate-100">
+                    ${badge}
+                    ${deleteButton}
                 </div>
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-4">
-                        <div class="bg-purple-100 w-12 h-12 rounded-2xl flex items-center justify-center text-purple-600 group-hover:scale-110 transition-transform">
-                            <i data-lucide="users" class="w-6 h-6"></i>
-                        </div>
-                        <div class="flex flex-col">
-                            <span class="text-xl font-bold text-slate-800">${roomId}</span>
-                            <span class="text-slate-500 text-sm">Tap to join room</span>
-                        </div>
+
+                <!-- Main Content -->
+                <div class="p-5 flex items-center gap-4">
+                    <div class="${iconBg} w-14 h-14 rounded-xl flex items-center justify-center text-white shadow-lg group-hover:scale-110 transition-transform">
+                        <i data-lucide="${icon}" class="w-7 h-7"></i>
                     </div>
-                    <i data-lucide="arrow-right" class="w-5 h-5 text-slate-400 group-hover:text-purple-600 transition-colors"></i>
+                    <div class="flex-1">
+                        <h3 class="text-2xl font-bold text-slate-800 mb-1">${roomId}</h3>
+                        <p class="text-sm text-slate-500 flex items-center gap-1">
+                            <i data-lucide="arrow-right" class="w-3 h-3"></i>
+                            ${subtitle}
+                        </p>
+                    </div>
+                    <div class="text-purple-400 group-hover:translate-x-1 transition-transform">
+                        <i data-lucide="chevron-right" class="w-6 h-6"></i>
+                    </div>
                 </div>
             </button>
         `;
@@ -679,10 +855,17 @@ window.switchRoom = function (roomId) {
 }
 
 window.removeRoom = function (roomId) {
-    if (confirm(`Remove "${roomId}" from saved rooms?`)) {
-        AppState.savedRooms = AppState.savedRooms.filter(r => r !== roomId);
-        localStorage.setItem('bp_saved_rooms', JSON.stringify(AppState.savedRooms));
+    const metadata = getRoomMetadata(roomId);
+    const isCreator = metadata?.isCreator || false;
+
+    const confirmMsg = isCreator
+        ? `Delete "${roomId}"? This will remove it from your list. The room will remain active on the server until all members leave.`
+        : `Hide "${roomId}" from your list? You can rejoin later with an invite.`;
+
+    if (confirm(confirmMsg)) {
+        removeRoomFromList(roomId);
         renderRoomList();
+        renderRoomSelectionList();
     }
 }
 
@@ -701,10 +884,8 @@ function addRoom(roomId) {
         return;
     }
 
-    if (!AppState.savedRooms.includes(roomId)) {
-        AppState.savedRooms.push(roomId);
-        localStorage.setItem('bp_saved_rooms', JSON.stringify(AppState.savedRooms));
-    }
+    // Save room as creator (will receive admin key on connection)
+    saveRoomToList(roomId, { isCreator: true, isMember: true });
 
     // Refresh room list and join the new room
     renderRoomSelectionList();
@@ -750,25 +931,32 @@ async function showActiveRoomsModal() {
     }
 
     // Render rooms
-    list.innerHTML = rooms.map(room => `
-        <div class="bg-gray-800 rounded-lg p-4 hover:bg-gray-700 transition-colors">
-            <div class="flex items-center justify-between mb-2">
+    list.innerHTML = rooms.map(room => {
+        const isEmpty = room.onlineCount === 0;
+        const statusIcon = isEmpty ? '⚪' : '🟢';
+        const statusText = isEmpty ? 'Empty (0 online)' : `${room.onlineCount} ${room.onlineCount === 1 ? 'person' : 'people'} online`;
+        const hostText = isEmpty ? 'Waiting for players...' : `Host: ${escapeHtml(room.hostName)}`;
+
+        return `
+        <div class="bg-gray-800 rounded-lg p-4 hover:bg-gray-700 transition-colors border border-gray-700 flex flex-col gap-2">
+            <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
-                    <span class="text-2xl">🟢</span>
+                    <span class="text-xl">${statusIcon}</span>
                     <span class="font-bold text-lg text-white">${escapeHtml(room.roomId)}</span>
                 </div>
+                 ${isEmpty ? '<span class="text-xs bg-gray-600 text-gray-200 px-2 py-1 rounded">Persistent</span>' : ''}
             </div>
-            <div class="text-gray-400 text-sm mb-3">
-                ${room.onlineCount} ${room.onlineCount === 1 ? 'person' : 'people'} online · Host: ${escapeHtml(room.hostName)}
+            <div class="text-gray-400 text-sm">
+                ${statusText} · ${hostText}
             </div>
             <button
                 onclick="requestJoinRoom('${escapeHtml(room.roomId)}')"
-                class="w-full px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+                class="w-full px-4 py-2 ${isEmpty ? 'bg-slate-600 hover:bg-slate-500' : 'bg-purple-600 hover:bg-purple-700'} text-white rounded transition-colors mt-1"
             >
-                Request to Join
+                ${isEmpty ? 'Join Empty Room' : 'Request to Join'}
             </button>
         </div>
-    `).join('');
+    `}).join('');
 }
 
 function escapeHtml(unsafe) {
@@ -783,6 +971,14 @@ function escapeHtml(unsafe) {
 async function requestJoinRoom(roomId) {
     // Close active rooms modal
     document.getElementById('activeRoomsModal').classList.add('hidden');
+
+    // Show pending request banner
+    const banner = document.getElementById('pendingRequestBanner');
+    const bannerRoomName = document.getElementById('pendingRequestRoomName');
+    if (banner && bannerRoomName) {
+        bannerRoomName.textContent = roomId;
+        banner.classList.remove('hidden');
+    }
 
     // Show waiting modal
     const waitingModal = document.getElementById('joinRequestWaitingModal');
@@ -812,9 +1008,86 @@ async function requestJoinRoom(roomId) {
             console.log('📤 Join request sent to', roomId);
         };
 
+        ws.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                console.log('📨 [TEMP WS] Received message:', msg);
+
+                // Handle approval
+                if (msg.t === 'join_approved') {
+                    console.log('✅ Join request approved!');
+
+                    // Close waiting modal
+                    waitingModal.classList.add('hidden');
+
+                    // Hide pending banner
+                    const banner = document.getElementById('pendingRequestBanner');
+                    if (banner) banner.classList.add('hidden');
+
+                    // Close temp WebSocket
+                    ws.close();
+                    window._tempJoinRequestWs = null;
+
+                    // Auto-join with the invite token
+                    setTimeout(() => {
+                        joinRoom(roomId, msg.inviteToken);
+                    }, 500);
+                }
+
+                // Handle denial
+                if (msg.t === 'join_denied') {
+                    console.log('❌ Join request denied');
+
+                    // Close waiting modal
+                    waitingModal.classList.add('hidden');
+
+                    // Hide pending banner
+                    const banner = document.getElementById('pendingRequestBanner');
+                    if (banner) banner.classList.add('hidden');
+
+                    // Close temp WebSocket
+                    ws.close();
+                    window._tempJoinRequestWs = null;
+
+                    // Show error message
+                    alert('Your request to join was denied by the host.');
+                }
+
+                // Handle errors
+                if (msg.t === 'error') {
+                    console.error('❌ Error:', msg.message);
+
+                    if (msg.code === 'duplicate_request') {
+                        waitingModal.classList.add('hidden');
+                        const banner = document.getElementById('pendingRequestBanner');
+                        if (banner) banner.classList.add('hidden');
+                        alert('You already have a pending request for this room.');
+                        ws.close();
+                        window._tempJoinRequestWs = null;
+                    } else if (msg.code === 'rate_limit') {
+                        waitingModal.classList.add('hidden');
+                        const banner = document.getElementById('pendingRequestBanner');
+                        if (banner) banner.classList.add('hidden');
+                        alert('Too many join requests. Please wait before trying again.');
+                        ws.close();
+                        window._tempJoinRequestWs = null;
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to parse message:', error);
+            }
+        };
+
         ws.onerror = () => {
             waitingModal.classList.add('hidden');
             alert('Failed to connect to room. Please try again.');
+        };
+
+        ws.onclose = () => {
+            // Clean up on close
+            if (window._tempJoinRequestWs === ws) {
+                window._tempJoinRequestWs = null;
+            }
         };
 
         // Store WebSocket for later cleanup
@@ -875,6 +1148,7 @@ function showJoinRequestNotification(request) {
         approveJoinRequest(request.clientId);
         // Remove notification
         approveBtn.closest('.bg-purple-900').remove();
+        updateJoinRequestBadge();
     });
 
     // Set up deny button
@@ -883,10 +1157,111 @@ function showJoinRequestNotification(request) {
         denyJoinRequest(request.clientId);
         // Remove notification
         denyBtn.closest('.bg-purple-900').remove();
+        updateJoinRequestBadge();
     });
 
     // Add to container
     container.appendChild(notification);
+
+    // Update badge count
+    updateJoinRequestBadge();
+}
+
+function updateJoinRequestBadge() {
+    // Get pending requests from server state if available
+    const pendingRequests = AppState.realtimeClient?.state?.joinRequests || [];
+    const count = pendingRequests.length;
+
+    const badge = document.getElementById('joinRequestsBadge');
+    if (!badge) return;
+
+    if (count > 0) {
+        badge.textContent = count;
+        badge.classList.remove('hidden');
+    } else {
+        badge.classList.add('hidden');
+    }
+}
+
+function showJoinRequestsModal() {
+    const modal = document.getElementById('joinRequestsModal');
+    const list = document.getElementById('joinRequestsModalList');
+    const noRequests = document.getElementById('noJoinRequests');
+
+    if (!modal || !list || !noRequests) return;
+
+    // Get pending requests from server state
+    const pendingRequests = AppState.realtimeClient?.state?.joinRequests || [];
+
+    // Clear list
+    list.innerHTML = '';
+
+    if (pendingRequests.length === 0) {
+        noRequests.classList.remove('hidden');
+        list.classList.add('hidden');
+    } else {
+        noRequests.classList.add('hidden');
+        list.classList.remove('hidden');
+
+        // Render each request
+        pendingRequests.forEach(request => {
+            const requestEl = document.createElement('div');
+            requestEl.className = 'bg-purple-800/50 rounded-xl p-4 flex items-center justify-between border border-purple-700/30';
+            requestEl.innerHTML = `
+                <div class="flex items-center gap-3">
+                    <span class="text-3xl">${escapeHtml(request.avatar)}</span>
+                    <div>
+                        <p class="font-bold text-white">${escapeHtml(request.displayName)}</p>
+                        <p class="text-sm text-purple-300">wants to join</p>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button class="approve-btn px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-bold">
+                        ✓ Approve
+                    </button>
+                    <button class="deny-btn px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-bold">
+                        ✗ Deny
+                    </button>
+                </div>
+            `;
+
+            // Set up approve button
+            requestEl.querySelector('.approve-btn').addEventListener('click', () => {
+                approveJoinRequest(request.clientId);
+                requestEl.remove();
+                updateJoinRequestBadge();
+
+                // Check if modal is now empty
+                if (list.children.length === 0) {
+                    noRequests.classList.remove('hidden');
+                    list.classList.add('hidden');
+                }
+            });
+
+            // Set up deny button
+            requestEl.querySelector('.deny-btn').addEventListener('click', () => {
+                denyJoinRequest(request.clientId);
+                requestEl.remove();
+                updateJoinRequestBadge();
+
+                // Check if modal is now empty
+                if (list.children.length === 0) {
+                    noRequests.classList.remove('hidden');
+                    list.classList.add('hidden');
+                }
+            });
+
+            list.appendChild(requestEl);
+        });
+    }
+
+    // Show modal
+    modal.classList.remove('hidden');
+
+    // Refresh icons
+    if (window.lucide) {
+        lucide.createIcons();
+    }
 }
 
 function approveJoinRequest(requesterId) {
@@ -921,13 +1296,27 @@ function denyJoinRequest(requesterId) {
 
 function updateOnlineUsersDisplay() {
     const onlineUsers = document.getElementById('onlineUsers');
-    if (!onlineUsers) return;
+    const onlineMemberCount = document.getElementById('onlineMemberCount');
 
     if (AppState.realtimeClient && AppState.realtimeClient.isConnected) {
         const onlineCount = Object.values(AppState.realtimeClient.state?.members || {}).filter(m => m.online).length;
-        onlineUsers.innerHTML = `<p>${onlineCount} ${onlineCount === 1 ? 'person' : 'people'} online in this room</p>`;
+
+        // Update lobby view
+        if (onlineUsers) {
+            onlineUsers.innerHTML = `<p>${onlineCount} ${onlineCount === 1 ? 'person' : 'people'} online in this room</p>`;
+        }
+
+        // Update header count
+        if (onlineMemberCount) {
+            onlineMemberCount.textContent = onlineCount;
+        }
     } else {
-        onlineUsers.innerHTML = `<p>Connecting to room...</p>`;
+        if (onlineUsers) {
+            onlineUsers.innerHTML = `<p>Connecting to room...</p>`;
+        }
+        if (onlineMemberCount) {
+            onlineMemberCount.textContent = '0';
+        }
     }
 }
 
@@ -966,14 +1355,27 @@ function setupEventListeners() {
     });
 
     // Join Request Waiting
-    document.getElementById('cancelJoinRequest')?.addEventListener('click', () => {
+    const cancelJoinRequest = () => {
         document.getElementById('joinRequestWaitingModal').classList.add('hidden');
+
+        // Hide pending banner
+        const banner = document.getElementById('pendingRequestBanner');
+        if (banner) banner.classList.add('hidden');
 
         // Close temp WebSocket if exists
         if (window._tempJoinRequestWs) {
             window._tempJoinRequestWs.close();
             window._tempJoinRequestWs = null;
         }
+    };
+
+    document.getElementById('cancelJoinRequest')?.addEventListener('click', cancelJoinRequest);
+    document.getElementById('cancelPendingRequestBtn')?.addEventListener('click', cancelJoinRequest);
+
+    document.getElementById('closeJoinRequestWaitingModal')?.addEventListener('click', () => {
+        // Just hide the modal, keep the request pending
+        document.getElementById('joinRequestWaitingModal').classList.add('hidden');
+        // Don't close the WebSocket - let it stay open to receive approval
     });
 
     // Invite Share
@@ -995,6 +1397,12 @@ function setupEventListeners() {
             console.error('Failed to copy:', error);
             alert('Failed to copy link');
         }
+    });
+
+    // Join Requests Modal
+    document.getElementById('joinRequestsButton')?.addEventListener('click', showJoinRequestsModal);
+    document.getElementById('closeJoinRequestsModal')?.addEventListener('click', () => {
+        document.getElementById('joinRequestsModal').classList.add('hidden');
     });
 
     // === Navigation ===
@@ -1075,6 +1483,28 @@ function setupEventListeners() {
     document.getElementById('addRoomButton')?.addEventListener('click', () => {
         const val = document.getElementById('newRoomInput')?.value;
         if (val) addRoom(val);
+    });
+
+    // === Owner Actions ===
+    document.getElementById('copyAdminLinkButton')?.addEventListener('click', () => {
+        // Ensure the URL has the admin key
+        const adminKey = getAdminKey(AppState.currentRoomId);
+        if (!adminKey) {
+            alert('Error: Admin key not found.');
+            return;
+        }
+
+        const url = new URL(window.location);
+        url.searchParams.set('room', AppState.currentRoomId);
+        url.searchParams.set('adminKey', adminKey);
+
+        navigator.clipboard.writeText(url.toString()).then(() => {
+            const btn = document.getElementById('copyAdminLinkButton');
+            const original = btn.innerHTML;
+            btn.innerHTML = '<i data-lucide="check" class="w-5 h-5"></i> <span>Copied Recovery Link!</span>';
+            setTimeout(() => btn.innerHTML = original, 2000);
+            alert('🔑 REQUIRED FOR CACHE CLEARING\n\nSave this link! If you clear your browser cache, use THIS link to reclaim your room ownership.');
+        });
     });
 
     document.getElementById('newRoomInput')?.addEventListener('keypress', (e) => {
